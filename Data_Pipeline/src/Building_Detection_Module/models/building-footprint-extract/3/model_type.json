@@ -1,0 +1,4 @@
+{
+    "project_task_type": "instance-segmentation",
+    "model_type": "yolov8m"
+}

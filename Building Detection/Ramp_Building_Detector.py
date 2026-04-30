@@ -1,6 +1,6 @@
 """
 Offline Building Footprint Detection using Deepness RAMP XUNet ONNX model
-With binary mask output per tile.
+JSON-only output (no mask images saved).
 
 Model: ramp_xunet_*.onnx  (from Deepness Model Zoo)
 Classes: 0=Background, 1=Building
@@ -25,15 +25,12 @@ MIN_CONTOUR_AREA  = 400    # seg_small_segment from metadata — drop blobs smal
 
 
 class BuildingDetector:
-    def __init__(self, model_path: str, masks_dir: str = "masks"):
+    def __init__(self, model_path: str):
         """
         Args:
             model_path: Path to ramp_xunet_*.onnx
-            masks_dir:  Folder where mask images will be saved
         """
         self.model_path = model_path
-        self.masks_dir = Path(masks_dir)
-        self.masks_dir.mkdir(parents=True, exist_ok=True)
         self.session = None
         self.json_list = []
         self.load_model()
@@ -66,9 +63,6 @@ class BuildingDetector:
     def run_inference(self, image: np.ndarray) -> np.ndarray:
         """
         Run tiled inference over a full image with overlap blending.
-        Tiles are extracted with TILE_OVERLAP px padding, inferred individually,
-        and the building-probability channel is stitched back via an accumulator
-        so overlapping regions are averaged rather than overwritten.
 
         Returns:
             building_prob: float32 array (H, W) with values in [0, 1]
@@ -76,13 +70,12 @@ class BuildingDetector:
         orig_h, orig_w = image.shape[:2]
         step = TILE_SIZE - TILE_OVERLAP
 
-        accum  = np.zeros((orig_h, orig_w), dtype=np.float32)  # sum of probabilities
-        counts = np.zeros((orig_h, orig_w), dtype=np.float32)  # how many tiles covered each pixel
+        accum  = np.zeros((orig_h, orig_w), dtype=np.float32)
+        counts = np.zeros((orig_h, orig_w), dtype=np.float32)
 
         y_starts = list(range(0, orig_h, step))
         x_starts = list(range(0, orig_w, step))
 
-        # Make sure the last tile always reaches the image edge
         if y_starts[-1] + TILE_SIZE < orig_h:
             y_starts.append(orig_h - TILE_SIZE)
         if x_starts[-1] + TILE_SIZE < orig_w:
@@ -100,18 +93,14 @@ class BuildingDetector:
                 tensor = self._preprocess_tile(tile)
 
                 output = self.session.run([self.output_name], {self.input_name: tensor})[0]
-                # output shape may be (1, 2, H, W) logits or (1, 1, H, W) sigmoid
                 if output.shape[1] == 2:
-                    # Two-class logits — softmax, take building channel
                     exp = np.exp(output[0] - output[0].max(axis=0, keepdims=True))
                     prob = (exp / exp.sum(axis=0))[BUILDING_CLASS_ID]
                 elif output.shape[1] == 1:
-                    # Single-channel sigmoid output
                     prob = 1.0 / (1.0 + np.exp(-output[0, 0]))
                 else:
                     prob = np.argmax(output[0], axis=0).astype(np.float32)
 
-                # Resize prob back to tile pixel size (should already match, but be safe)
                 prob_resized = cv2.resize(prob, (x1 - x0, y1 - y0))
 
                 accum[y0:y1, x0:x1]  += prob_resized
@@ -124,14 +113,13 @@ class BuildingDetector:
 
     def probability_to_mask(self, building_prob: np.ndarray) -> np.ndarray:
         """
-        Apply seg_thresh and remove small segments (seg_small_segment = 11 px²).
+        Apply seg_thresh and remove small segments.
 
         Returns:
             binary mask uint8 (0 / 255) at original image resolution
         """
         binary = (building_prob >= SEG_THRESH).astype(np.uint8) * 255
 
-        # Remove blobs smaller than MIN_CONTOUR_AREA
         n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
         cleaned = np.zeros_like(binary)
         for label in range(1, n_labels):
@@ -151,8 +139,8 @@ class BuildingDetector:
 
     def polygon_to_rectangle(self, contour: np.ndarray) -> dict:
         """Fit a minimum-area rectangle around a contour."""
-        rect  = cv2.minAreaRect(contour)
-        box   = np.int32(cv2.boxPoints(rect))
+        rect = cv2.minAreaRect(contour)
+        box  = np.int32(cv2.boxPoints(rect))
         return {'box': box, 'center': rect[0], 'size': rect[1], 'angle': rect[2]}
 
     def contours_to_rectangles(self, contours, confidence_thresh: float = 0.0) -> list:
@@ -190,42 +178,10 @@ class BuildingDetector:
             })
         return rectangles
 
-    # ── Mask visualisation ────────────────────────────────────────────────────
-
-    def save_masks(self, image: np.ndarray, building_mask: np.ndarray,
-                   building_prob: np.ndarray, tile_name: str,
-                   contours: list, rectangles: list):
-        """
-        Save three outputs per tile:
-          1. <tile>_mask_binary.png   — white buildings on black
-          2. <tile>_mask_overlay.png  — original + green fill + orange rect outlines
-          3. <tile>_mask_prob.png     — heatmap of raw building probability
-        """
-        # 1. Binary mask
-        cv2.imwrite(str(self.masks_dir / f"{tile_name}_mask_binary.png"), building_mask)
-
-        # 2. Overlay
-        overlay      = image.copy()
-        green_layer  = np.zeros_like(image)
-        green_layer[building_mask == 255] = (0, 200, 0)
-        overlay = cv2.addWeighted(overlay, 1.0, green_layer, 0.45, 0)
-        cv2.drawContours(overlay, contours, -1, (0, 255, 0), 1)
-        for rect in rectangles:
-            box = np.array(rect['corner_points'], dtype=np.int32)
-            cv2.drawContours(overlay, [box], 0, (0, 80, 255), 2)
-        cv2.imwrite(str(self.masks_dir / f"{tile_name}_mask_overlay.png"), overlay)
-
-        # 3. Probability heatmap (JET colormap, brighter = more confident building)
-        prob_norm  = (np.clip(building_prob, 0, 1) * 255).astype(np.uint8)
-        prob_color = cv2.applyColorMap(prob_norm, cv2.COLORMAP_JET)
-        cv2.imwrite(str(self.masks_dir / f"{tile_name}_mask_prob.png"), prob_color)
-
-        print(f"  Masks saved → {tile_name}_mask_{{binary,overlay,prob}}.png")
-
     # ── Per-tile pipeline ─────────────────────────────────────────────────────
 
-    def process_image_with_mask(self, image_path: Path, confidence: float = 0.0):
-        """Full pipeline for one tile: infer → mask → contours → rectangles → save."""
+    def process_image(self, image_path: Path, confidence: float = 0.0):
+        """Full pipeline for one tile: infer → mask → contours → rectangles."""
         print(f"Processing: {image_path.name}")
 
         image = cv2.imread(str(image_path))
@@ -238,15 +194,10 @@ class BuildingDetector:
         contours      = self.extract_contours(building_mask)
         rectangles    = self.contours_to_rectangles(contours, confidence_thresh=confidence)
 
-        # Always save masks even when no buildings found
-        self.save_masks(image, building_mask, building_prob,
-                        image_path.stem, contours, rectangles)
-
         if not rectangles:
             print(f"  No buildings detected.")
             return
 
-        # Build JSON entry
         tokens = image_path.stem.split('_')
         try:
             json_data = {
@@ -277,9 +228,9 @@ class BuildingDetector:
             print(f"No PNG files found in {image_folder}")
             return
 
-        print(f"Processing {len(image_paths)} tile(s)... Masks → '{self.masks_dir}/'")
+        print(f"Processing {len(image_paths)} tile(s)...")
         for img_path in image_paths:
-            self.process_image_with_mask(img_path, confidence=confidence)
+            self.process_image(img_path, confidence=confidence)
 
         with open(output_path, 'w') as f:
             json.dump({"tileBuildingsList": self.json_list}, f, indent=2)
@@ -303,12 +254,8 @@ if __name__ == "__main__":
         "--output", default="buildings.json",
         help="Output JSON path (default: buildings.json)"
     )
-    parser.add_argument(
-        "--masks-dir", default="masks",
-        help="Directory to save mask images (default: masks/)"
-    )
     args = parser.parse_args()
 
-    detector = BuildingDetector(model_path=args.model, masks_dir=args.masks_dir)
+    detector = BuildingDetector(model_path=args.model)
     detector.process_batch(args.image_folder, output_path=args.output,
                            confidence=args.confidence)

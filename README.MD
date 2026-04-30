@@ -2,6 +2,10 @@
 Quick tip: Right-click this README.md file in VS Code and choose "Open Preview" (or press Ctrl+K V)
 for a nicer rendered view.
 -->
+
+Usage: python script.py ./my_tiles --model model_path
+Install the model from : https://chmura.put.poznan.pl/s/MwhgQNhyQF3fuBs?opendetails=
+
 # Heightmap and Texture Tile Generator
 
 Toolset to:

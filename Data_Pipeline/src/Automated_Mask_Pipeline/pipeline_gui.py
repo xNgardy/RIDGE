@@ -32,6 +32,10 @@ class PipelineGui(tk.Tk):
             "ndvi_file": tk.StringVar(value=""),
             "building_images": tk.StringVar(value=str(DATA_PIPELINE / "outputs" / "unity_output" / "tiles_rgb")),
             "unity_package_dir": tk.StringVar(value=str(DATA_PIPELINE / "outputs" / "unity_ready" / "Terrain_Tiles")),
+            "building_detector": tk.StringVar(value="roboflow"),
+            "ramp_building_model": tk.StringVar(
+                value=str(DATA_PIPELINE / "src" / "Building_Detection_Module" / "ramp_xunet.onnx")
+            ),
             "tree_threshold": tk.StringVar(value="0.4"),
             "tree_density": tk.StringVar(value="0.05"),
             "building_confidence": tk.StringVar(value="40"),
@@ -60,18 +64,27 @@ class PipelineGui(tk.Tk):
         self._path_row(paths, "Unity output folder", "unity_output", directory=True)
         self._path_row(paths, "NDVI TIFF", "ndvi_file", file=True)
         self._path_row(paths, "Building image tiles", "building_images", directory=True)
+        self._path_row(paths, "RAMP building model", "ramp_building_model", file=True)
         self._path_row(paths, "Unity package output", "unity_package_dir", directory=True)
 
         options = ttk.LabelFrame(root, text="Options")
         options.pack(fill="x", pady=(10, 0))
 
-        self._entry_row(options, "Tree threshold", "tree_threshold", 0, 0)
-        self._entry_row(options, "Tree density", "tree_density", 0, 2)
-        self._entry_row(options, "Building confidence", "building_confidence", 1, 0)
-        self._entry_row(options, "Roboflow API key", "roboflow_api_key", 1, 2, show="*")
+        ttk.Label(options, text="Building detector").grid(row=0, column=0, sticky="w", padx=6, pady=4)
+        ttk.Combobox(
+            options,
+            textvariable=self.vars["building_detector"],
+            values=("roboflow", "ramp"),
+            state="readonly",
+            width=18,
+        ).grid(row=0, column=1, sticky="ew", padx=6, pady=4)
+        self._entry_row(options, "Building confidence", "building_confidence", 0, 2)
+        self._entry_row(options, "Tree threshold", "tree_threshold", 1, 0)
+        self._entry_row(options, "Tree density", "tree_density", 1, 2)
+        self._entry_row(options, "Roboflow API key", "roboflow_api_key", 2, 0, show="*")
 
         checks = ttk.Frame(options)
-        checks.grid(row=2, column=0, columnspan=4, sticky="w", pady=(8, 4))
+        checks.grid(row=3, column=0, columnspan=4, sticky="w", pady=(8, 4))
         for key, label in [
             ("low_is_tree", "Low NDVI means tree"),
             ("invert_tree_mask", "Invert tree mask"),
@@ -135,6 +148,10 @@ class PipelineGui(tk.Tk):
             self.vars["building_images"].get(),
             "--unity-package-dir",
             self.vars["unity_package_dir"].get(),
+            "--building-detector",
+            self.vars["building_detector"].get(),
+            "--ramp-building-model",
+            self.vars["ramp_building_model"].get(),
             "--tree-threshold",
             self.vars["tree_threshold"].get(),
             "--tree-density",

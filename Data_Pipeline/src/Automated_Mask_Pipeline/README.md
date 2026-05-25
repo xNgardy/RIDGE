@@ -2,17 +2,23 @@
 
 This folder contains the non-XPlane automation pipeline for generating and cleaning:
 
-1. road masks
-2. tree masks
-3. building masks and building JSON
+1. building JSON and building masks
+2. road masks
+3. tree masks
 
 The collision order is:
 
-1. roads are generated first
-2. tree masks are generated, then road pixels are removed from tree masks and `tree_positions.json`
-3. buildings are detected, then building masks are generated with road and tree pixels removed
-4. the cleaned Unity building JSON removes buildings that collide with roads or trees, because Unity places buildings from rectangles
-5. a Unity-ready `Terrain_Tiles` package is exported
+1. buildings are detected first and saved to raw `buildings.json`
+2. roads are generated and exported to road JSON
+3. tree masks are generated, then road pixels are removed from tree masks and `tree_positions.json`
+4. building masks are generated with road and tree pixels removed
+5. the cleaned Unity building JSON removes buildings that collide with roads or trees, because Unity places buildings from rectangles
+6. a Unity-ready `Terrain_Tiles` package is exported
+
+The building detector can be selected at runtime:
+
+- `roboflow`: uses `building_detector_local.py`, which loads the cached Roboflow model or downloads it on first run with a Roboflow API key
+- `ramp`: uses `Ramp_Building_Detector.py` with a local RAMP XUNet ONNX model
 
 The pipeline preserves the full Unity tile grid. If a tile has no roads, trees,
 or buildings after cleanup, it still receives an empty mask or empty JSON entry
@@ -32,6 +38,8 @@ Fill in:
 - `Unity output folder`: usually `Data_Pipeline/outputs/unity_output`
 - `NDVI TIFF`: source NDVI file if `tiles_ndvi` has not already been created
 - `Building image tiles`: usually `Data_Pipeline/outputs/unity_output/tiles_rgb`
+- `Building detector`: choose `roboflow` or `ramp`
+- `RAMP building model`: path to `ramp_xunet.onnx` when using the RAMP detector
 - `Roboflow API key`: only needed if the building model is not already cached locally
 
 Click `Run Pipeline`.
@@ -43,6 +51,19 @@ Data_Pipeline/venv/bin/python Data_Pipeline/src/Automated_Mask_Pipeline/pipeline
   --rgb-tifs Data_Pipeline/outputs/RGB_tifs \
   --unity-output Data_Pipeline/outputs/unity_output \
   --ndvi-file Data_Pipeline/inputs/your_ndvi_file.tiff \
+  --building-detector roboflow \
+  --low-is-tree
+```
+
+Use the RAMP detector instead:
+
+```bash
+Data_Pipeline/venv/bin/python Data_Pipeline/src/Automated_Mask_Pipeline/pipeline_runner.py \
+  --rgb-tifs Data_Pipeline/outputs/RGB_tifs \
+  --unity-output Data_Pipeline/outputs/unity_output \
+  --ndvi-file Data_Pipeline/inputs/your_ndvi_file.tiff \
+  --building-detector ramp \
+  --ramp-building-model Data_Pipeline/src/Building_Detection_Module/ramp_xunet.onnx \
   --low-is-tree
 ```
 

@@ -97,13 +97,29 @@ def run_tree_masks(args: argparse.Namespace) -> Path:
 
 
 def run_buildings(args: argparse.Namespace) -> Path:
-    detector_path = SRC_DIR / "Building_Detection_Module" / "building_detector_local.py"
-    module = _load_module(detector_path)
-    detector = module.BuildingDetector(api_key=args.roboflow_api_key or None)
+    building_module_dir = SRC_DIR / "Building_Detection_Module"
+    if args.building_detector == "roboflow":
+        detector_path = building_module_dir / "building_detector_local.py"
+        module = _load_module(detector_path)
+        detector = module.BuildingDetector(api_key=args.roboflow_api_key or None)
+        confidence = args.building_confidence
+    elif args.building_detector == "ramp":
+        detector_path = building_module_dir / "Ramp_Building_Detector.py"
+        module = _load_module(detector_path)
+        detector = module.BuildingDetector(model_path=str(args.ramp_building_model))
+        confidence = args.building_confidence / 100.0
+    else:
+        raise ValueError(f"Unsupported building detector: {args.building_detector}")
+
+    args.buildings_json.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Running {args.building_detector} building detector.")
+    if args.building_detector == "ramp":
+        print(f"RAMP model: {args.ramp_building_model}")
+
     detector.process_batch(
         args.building_images,
         output_path=args.buildings_json,
-        confidence=args.building_confidence,
+        confidence=confidence,
     )
     print(f"Saved building JSON to {args.buildings_json}")
     return args.buildings_json
@@ -126,12 +142,24 @@ def run_pipeline(args: argparse.Namespace) -> None:
     args.cleaned_buildings_json = args.cleaned_buildings_json.resolve()
     args.building_masks_out = args.building_masks_out.resolve()
     args.unity_package_dir = args.unity_package_dir.resolve()
+    args.ramp_building_model = args.ramp_building_model.resolve()
     args.road_masks = args.road_masks.resolve() if args.road_masks else args.rgb_tifs / "_roads_out_rgb"
     args.tree_masks = args.tree_masks.resolve() if args.tree_masks else args.unity_output / "tiles_trees"
 
     print("Automatic mask pipeline started.")
     print(f"RGB GeoTIFF folder: {args.rgb_tifs}")
     print(f"Unity output folder: {args.unity_output}")
+    print(f"Building detector: {args.building_detector}")
+
+    buildings_json = args.buildings_json
+    if not args.skip_buildings:
+        buildings_json = run_buildings(args)
+        completion_summary = complete_buildings_json_from_images(buildings_json, args.building_images)
+        print(f"Building JSON completion summary: {completion_summary}")
+    else:
+        print(f"Skipping building detection; using existing building JSON: {buildings_json}")
+        completion_summary = complete_buildings_json_from_images(buildings_json, args.building_images)
+        print(f"Building JSON completion summary: {completion_summary}")
 
     road_masks = args.road_masks
     if not args.skip_roads:
@@ -163,31 +191,14 @@ def run_pipeline(args: argparse.Namespace) -> None:
         tree_completion_summary = complete_tree_outputs_from_images(tree_masks, args.building_images)
         print(f"Tree output completion summary: {tree_completion_summary}")
 
-    buildings_json = args.buildings_json
-    if not args.skip_buildings:
-        buildings_json = run_buildings(args)
-        completion_summary = complete_buildings_json_from_images(buildings_json, args.building_images)
-        print(f"Building JSON completion summary: {completion_summary}")
-        building_summary = create_clean_building_masks(
-            buildings_json,
-            args.building_masks_out,
-            road_masks,
-            tree_masks,
-            cleaned_buildings_json_path=args.cleaned_buildings_json,
-        )
-        print(f"Building cleanup summary: {building_summary}")
-    else:
-        print("Skipping building detection.")
-        completion_summary = complete_buildings_json_from_images(buildings_json, args.building_images)
-        print(f"Building JSON completion summary: {completion_summary}")
-        building_summary = create_clean_building_masks(
-            buildings_json,
-            args.building_masks_out,
-            road_masks,
-            tree_masks,
-            cleaned_buildings_json_path=args.cleaned_buildings_json,
-        )
-        print(f"Building cleanup summary: {building_summary}")
+    building_summary = create_clean_building_masks(
+        buildings_json,
+        args.building_masks_out,
+        road_masks,
+        tree_masks,
+        cleaned_buildings_json_path=args.cleaned_buildings_json,
+    )
+    print(f"Building cleanup summary: {building_summary}")
 
     package_summary = export_unity_package(
         args.unity_output,
@@ -210,7 +221,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Automatic road/tree/building mask pipeline")
+    parser = argparse.ArgumentParser(description="Automatic building/road/tree mask pipeline")
     parser.add_argument("--python", default=sys.executable, help="Python executable used for subprocess steps")
     parser.add_argument("--rgb-tifs", type=Path, default=DATA_PIPELINE / "outputs" / "RGB_tifs")
     parser.add_argument("--unity-output", type=Path, default=DATA_PIPELINE / "outputs" / "unity_output")
@@ -232,8 +243,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--invert-tree-mask", action="store_true")
     parser.add_argument("--low-is-tree", action="store_true")
 
-    parser.add_argument("--building-confidence", type=int, default=40)
+    parser.add_argument("--building-detector", choices=("roboflow", "ramp"), default="roboflow")
+    parser.add_argument("--building-confidence", type=int, default=40, help="Roboflow confidence 0-100; RAMP fill-ratio threshold uses this value divided by 100")
     parser.add_argument("--roboflow-api-key", default=os.getenv("ROBOFLOW_API_KEY", ""))
+    parser.add_argument(
+        "--ramp-building-model",
+        type=Path,
+        default=SRC_DIR / "Building_Detection_Module" / "ramp_xunet.onnx",
+        help="Path to the RAMP XUNet ONNX model when --building-detector ramp is selected",
+    )
     parser.add_argument("--road-width-m", type=float, default=6.0)
 
     parser.add_argument("--skip-roads", action="store_true")

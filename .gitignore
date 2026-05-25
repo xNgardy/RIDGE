@@ -1,96 +1,31 @@
-# =========================
-# OS / Editor
-# =========================
-**/.DS_Store
-Thumbs.db
+# Python related
+__pycache__/
+
+# Virtual environments
+*venv/
+
+# IDEs and editors
 .vscode/
-.idea/
-*.swp
-*.swo
-*~
 
-# =========================
-# Python (scoped to Data_Pipeline)
-# =========================
-Data_Pipeline/**/__pycache__/
-Data_Pipeline/**/*.py[cod]
-Data_Pipeline/**/*.pyo
-Data_Pipeline/**/*.pyd
-Data_Pipeline/**/.pytest_cache/
-Data_Pipeline/**/.mypy_cache/
-Data_Pipeline/**/.ruff_cache/
-Data_Pipeline/**/.ipynb_checkpoints/
+# Project outputs / large data
+unity_output/
+tiles_rgb/
+tiles_height/
+*.raw
+*.tif
+*.tiff
+*.TIF
 
-# Virtual environments (inside Data_Pipeline)
-Data_Pipeline/.venv/
-Data_Pipeline/venv/
-Data_Pipeline/env/
+*.json
 
-# Local env files (anywhere)
-.env
-*.env
-
-# Python build artifacts (scoped)
-Data_Pipeline/build/
-Data_Pipeline/dist/
-Data_Pipeline/*.egg-info/
-
-# =========================
-# Data Pipeline data (do not commit large data files)
-# =========================
-Data_Pipeline/inputs/
-Data_Pipeline/outputs/
-
-# =========================
-# Unity (Unity_Engine) — standard Unity .gitignore
-# =========================
-
-# Unity generated folders
-Unity_Engine/[Ll]ibrary/
-Unity_Engine/[Tt]emp/
-Unity_Engine/[Oo]bj/
-Unity_Engine/[Bb]uild/
-Unity_Engine/[Bb]uilds/
-Unity_Engine/[Ll]ogs/
-Unity_Engine/[Uu]ser[Ss]ettings/
-Unity_Engine/MemoryCaptures/
-Unity_Engine/Recordings/
-
-# IDE / tooling
-Unity_Engine/.vs/
-Unity_Engine/.idea/
-
-# Auto-generated solution/project files
-Unity_Engine/*.csproj
-Unity_Engine/*.unityproj
-Unity_Engine/*.sln
-Unity_Engine/*.suo
-Unity_Engine/*.tmp
-Unity_Engine/*.user
-Unity_Engine/*.userprefs
-Unity_Engine/*.pidb
-Unity_Engine/*.booproj
-Unity_Engine/*.svd
-Unity_Engine/*.pdb
-Unity_Engine/*.mdb
-Unity_Engine/*.opendb
-Unity_Engine/*.VC.db
-
-# Unity crash reports
-Unity_Engine/sysinfo.txt
-
-# Asset Store tools
-Unity_Engine/Assets/AssetStoreTools*
-
-# =========================
-# Images
-# =========================
+# Image files
 *.png
 
-# =========================
-# Miscellaneous
-# =========================
-*.onnx
-*.log
-*.bak
-*.tmp
+# Master branch images folder
+master branch images/
+
+# Improsat images folder
+Improsat images/
+
+# README PNGs
+!Unity Codes/*.png

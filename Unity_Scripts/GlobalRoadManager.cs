@@ -1,93 +1,79 @@
-﻿using UnityEngine;
+using UnityEngine;
 using System.Collections.Generic;
 
 [ExecuteInEditMode]
 public class GlobalRoadManager : MonoBehaviour
 {
-    [Header("Temel Ayarlar")]
+    [Header("Tile Root")]
     public Transform tileRoot;
 
-    [Header("Materyaller")]
-    public Material asphaltMaterial; // Siyah Asfalt
-    public Material dirtMaterial;    // Kahverengi Toprak
+    [Header("Materials")]
+    public Material asphaltMaterial;
+    public Material dirtMaterial;
 
-    [Header("3D Yol Kalınlıkları (YENİ)")]
-    [Tooltip("Asfalt ne kadar kabarık olsun? (Metre)")]
+    [Header("3D Road Thicknesses")]
     public float asphaltThickness = 0.3f;
-
-    [Tooltip("Toprak ne kadar kabarık olsun?")]
     public float dirtThickness = 0.05f;
 
-    [Header("Genel Ayarlar")]
-    public float roadWidthScale = 1.0f;
-    [Range(0.01f, 1f)] public float threshold = 0.5f;
-
-    [Header("--- KONTROL ---")]
-    [Tooltip("Tik atinca calisir!")]
-    public bool TIKLA_VE_INSA_ET = false;
-
-    void OnValidate()
-    {
-        if (TIKLA_VE_INSA_ET)
-        {
-            BuildAllRoads();
-            TIKLA_VE_INSA_ET = false;
-        }
-    }
+    [Header("Settings")]
+    public float widthScale = 1.0f;
+    public float yOffset = 0.02f;
+    public float sampleSpacingM = 2.0f;
 
     public void BuildAllRoads()
     {
-        Debug.Log("🚀 3D YOL İNŞAATI BAŞLADI...");
-
-        if (tileRoot == null) { Debug.LogError("Tile Root bos!"); return; }
+        if (tileRoot == null) { Debug.LogError("Tile Root is empty"); return; }
 
         Terrain[] allTerrains = tileRoot.GetComponentsInChildren<Terrain>();
         int successCount = 0;
 
         foreach (Terrain t in allTerrains)
         {
-            string tName = t.gameObject.name;
-            int x = 0; int y = 0;
+            int x, y;
+            if (!ParseTileName(t.gameObject.name, out x, out y)) continue;
 
-            if (!ParseTileName(tName, out x, out y)) continue;
-
-            string searchName = "tile_" + x + "_" + y + "_mask";
+            string searchName = "tile_" + x + "_" + y + "_roads";
 
 #if UNITY_EDITOR
-            string[] guids = UnityEditor.AssetDatabase.FindAssets(searchName + " t:Texture2D");
-            
-            if (guids.Length == 0) continue; 
+            // JSON'u ara (TextAsset olarak import edilmiş olmalı)
+            string[] guids = UnityEditor.AssetDatabase.FindAssets(searchName + " t:TextAsset");
+            if (guids.Length == 0)
+            {
+                Debug.LogWarning($"JSON bulunamadı: {searchName}");
+                continue;
+            }
 
             string assetPath = UnityEditor.AssetDatabase.GUIDToAssetPath(guids[0]);
-            Texture2D maskTexture = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
+            TextAsset jsonAsset = UnityEditor.AssetDatabase.LoadAssetAtPath<TextAsset>(assetPath);
+            if (jsonAsset == null) continue;
 
-            EnsureReadWriteEnabled(assetPath);
+            RoadLineBuilder rb = t.gameObject.GetComponent<RoadLineBuilder>();
+            if (rb == null) rb = t.gameObject.AddComponent<RoadLineBuilder>();
 
-            MaskToRoad script = t.gameObject.GetComponent<MaskToRoad>();
-            if (script == null) script = t.gameObject.AddComponent<MaskToRoad>();
+            rb.targetTerrain     = t;
+            rb.roadsJson         = jsonAsset;
+            rb.asphaltMaterial   = asphaltMaterial;
+            rb.dirtMaterial      = dirtMaterial;
+            rb.asphaltThickness  = asphaltThickness;
+            rb.dirtThickness     = dirtThickness;
+            rb.widthScale        = widthScale;
+            rb.yOffset           = yOffset;
+            rb.sampleSpacingM    = sampleSpacingM;
 
-            // --- DEĞERLERİ AKTAR ---
-            script.targetTerrain = t;
-            script.roadMask = maskTexture;
-            
-            // Materyalleri gönder
-            script.asphaltMaterial = asphaltMaterial;
-            script.dirtMaterial = dirtMaterial;
-            
-            // --- YENİ EKLENEN KALINLIKLARI GÖNDER ---
-            script.asphaltThickness = asphaltThickness; // Burası eksikti, şimdi geldi!
-            script.dirtThickness = dirtThickness;       // Burası eksikti!
-            
-            // Diğer ayarlar
-            script.roadWidthScale = roadWidthScale;
-            script.threshold = threshold;
-
-            script.GenerateMeshFromMask();
+            rb.BuildRoads();
             successCount++;
 #endif
         }
 
-        Debug.Log("✅ İŞLEM TAMAM! " + successCount + " adet araziye 3D Yollar yapıldı.");
+        Debug.Log("Done " + successCount);
+    }
+
+    public void DeleteAllRoads()
+    {
+        if (tileRoot == null) return;
+        RoadLineBuilder[] all = tileRoot.GetComponentsInChildren<RoadLineBuilder>();
+        foreach (var r in all) r.ClearRoads();
+        Debug.Log("Roads cleared");
     }
 
     private bool ParseTileName(string name, out int x, out int y)
@@ -105,29 +91,5 @@ public class GlobalRoadManager : MonoBehaviour
             return false;
         }
         catch { return false; }
-    }
-
-    private void EnsureReadWriteEnabled(string path)
-    {
-#if UNITY_EDITOR
-        UnityEditor.TextureImporter importer = UnityEditor.AssetImporter.GetAtPath(path) as UnityEditor.TextureImporter;
-        if (importer != null && !importer.isReadable)
-        {
-            importer.isReadable = true;
-            UnityEditor.AssetDatabase.ImportAsset(path); 
-        }
-#endif
-    }
-    public void DeleteAllRoads()
-    {
-        Debug.Log("🗑️ Yollar siliniyor...");
-        if (tileRoot == null) return;
-
-        MaskToRoad[] allScripts = tileRoot.GetComponentsInChildren<MaskToRoad>();
-        foreach (MaskToRoad script in allScripts)
-        {
-            script.ClearRoads();
-        }
-        Debug.Log("✅ TEMİZLİK TAMAM!");
     }
 }

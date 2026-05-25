@@ -94,3 +94,6 @@ Unity_Engine/Assets/AssetStoreTools*
 *.log
 *.bak
 *.tmp
+Data_Pipeline/src/Tree_Detection_Module/xplane/RIDGE_Trees_Strict
+Data_Pipeline/src/Tree_Detection_Module/xplane/xptools_mac_24-5
+Data_Pipeline/src/Tree_Detection_Module/xplane/+37+036_strict.dsf

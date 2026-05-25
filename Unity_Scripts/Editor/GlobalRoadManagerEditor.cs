@@ -1,5 +1,5 @@
 ﻿using UnityEngine;
-using UnityEditor; // Bu kütüphane şart!
+using UnityEditor; 
 
 [CustomEditor(typeof(GlobalRoadManager))]
 public class GlobalRoadManagerEditor : Editor
@@ -11,25 +11,24 @@ public class GlobalRoadManagerEditor : Editor
 
         GlobalRoadManager manager = (GlobalRoadManager)target;
 
-        GUILayout.Space(20); // Biraz boşluk bırak
+        GUILayout.Space(20); 
 
-        // --- YEŞİL BUTON: İNŞA ET ---
+       
         GUI.backgroundColor = Color.green;
-        if (GUILayout.Button("🚧 Yolları İnşa Et 🚧", GUILayout.Height(40)))
+        if (GUILayout.Button("Build Roads", GUILayout.Height(40)))
         {
             manager.BuildAllRoads();
         }
 
         GUILayout.Space(10);
 
-        // --- KIRMIZI BUTON: SİL ---
-        GUI.backgroundColor = new Color(1f, 0.5f, 0.5f); // Açık kırmızı
-        if (GUILayout.Button("🗑️ Tüm Yolları Sil", GUILayout.Height(30)))
+        GUI.backgroundColor = new Color(1f, 0.5f, 0.5f);
+        if (GUILayout.Button("Delete Roads", GUILayout.Height(30)))
         {
-            // Yanlışlıkla basmaya karşı emin misin diye soralım
-            if (EditorUtility.DisplayDialog("Yolları Sil?",
-                "Haritadaki oluşturulmuş TÜM yolları silmek istediğine emin misin?",
-                "Evet, Sil", "İptal"))
+            // Yanlışlıkla basmaya karşı 
+            if (EditorUtility.DisplayDialog("Delete the roads?",
+                "Are you sure you want to delete ALL the roads created on the map?",
+                "Yes, DELETE", "Cancel"))
             {
                 manager.DeleteAllRoads();
             }

@@ -1,183 +1,150 @@
-# RIDGE Project
+<!--
+Quick tip: Right-click this README.md file in VS Code and choose "Open Preview" (or press Ctrl+K V)
+for a nicer rendered view.
+-->
 
-End-to-end workflow for generating geospatial terrain tiles in Python and importing them into Unity.
+Usage: python script.py ./my_tiles --model model_path
+Install the model from : https://chmura.put.poznan.pl/s/MwhgQNhyQF3fuBs?opendetails=
 
-This repository includes:
-- **Data_Pipeline**: terrain tile generation, NDVI processing, tree mask generation, and building detection outputs.
-- **Unity_Engine**: Unity project and editor tools for terrain placement, building placement, and NDVI-based tree placement.
+# X-Plane 12 Building Export & Installation
 
----
-
-## Repository Structure
-
-```text
-RIDGE-Project/
-├── Data_Pipeline/
-│   ├── requirements.txt
-│   ├── inputs/
-│   ├── outputs/
-│   │   └── unity_output/
-│   └── src/
-│       ├── Core_Terrain_Module/
-│       ├── Tree_Detection_Module/
-│       └── Building_Detection_Module/
-├── Unity_Engine/
-│   ├── Assets/
-│   ├── Packages/
-│   └── ProjectSettings/
-├── README_Python.md
-└── README_Unity.md
-```
+Detect buildings from aerial imagery and export them as a ready-to-install X-Plane 12 scenery package.
 
 ---
 
 ## Prerequisites
 
-- Python 3.8+
-- Unity **2022.3.40f1** (recommended; nearby 2022 LTS versions should also work)
+- Python 3.x
+- [DSFTool](https://developer.x-plane.com/tools/xptools/) (for compiling scenery files)
+- X-Plane 12
 
 ---
 
-## Python Setup
+## Step 1 — Run Building Detection
 
-From project root:
+```bash
+python script.py ./my_tiles --model model_path
+```
 
-```powershell
-cd Data_Pipeline
-python -m venv venv
-.\venv\Scripts\activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+Download the detection model:
+**[Download model](https://chmura.put.poznan.pl/s/MwhgQNhyQF3fuBs?opendetails=)**
+
+This produces a `buildings.json` file used in the next step.
+
+---
+
+## Step 2 — Export to X-Plane 12
+
+Convert `buildings.json` into a scenery package:
+
+```bash
+python xplane_exporter.py buildings.json \
+  --out XP12_Buildings \
+  --name My_City_Buildings \
+  --exclude-autogen
+```
+
+### Options
+
+| Option | Default | Description |
+|---|---|---|
+| `--out` | `XP12_Buildings` | Output folder name |
+| `--name` | same as `--out` | Package name shown in X-Plane |
+| `--gsd` | `0.5` | Metres per pixel (adjust if imagery differs) |
+| `--exclude-autogen` | off | Removes default buildings where yours are placed *(recommended)* |
+| `--min-area` | `25` | Minimum building footprint in m² |
+| `--xplane` | — | Path to X-Plane 12 install for auto-install |
+
+### Auto-install example
+
+```bash
+python xplane_exporter.py buildings.json \
+  --out XP12_Buildings \
+  --name My_City_Buildings \
+  --exclude-autogen \
+  --xplane "D:\SteamLibrary\steamapps\common\X-Plane 12"
 ```
 
 ---
 
-## Data Pipeline Workflow (Python)
+## Step 3 — Generated Folder Structure
 
-### 1) Generate Terrain Tiles (RGB + Height)
-
-Run from `Data_Pipeline/src/Core_Terrain_Module`:
-
-```powershell
-cd Data_Pipeline\src\Core_Terrain_Module
-python tiler.py "C:\path\to\rgb_tiles" "C:\path\to\dem.tif"
 ```
-
-Expected output under `Data_Pipeline/outputs/unity_output`:
-- `tile_metadata.json`
-- `tiles_rgb/`
-- `tiles_height/`
-- `tiles_height_tif/`
-
-### 2) (Optional) Process NDVI Tiles
-
-Run from `Data_Pipeline/src/Tree_Detection_Module`:
-
-```powershell
-cd ..\Tree_Detection_Module
-python crop_and_tile_ndvi.py "C:\path\to\ndvi.tiff" "C:\path\to\Data_Pipeline\outputs\unity_output"
-```
-
-Creates `tiles_ndvi/` (GeoTIFF + preview PNGs + `ndvi_stats.json`).
-
-### 3) (Optional) Generate Tree Masks / Positions
-
-```powershell
-python generate_tree_masks.py "C:\path\to\Data_Pipeline\outputs\unity_output" --threshold 0.4 --low-is-tree --density 0.05
-```
-
-Creates `tiles_trees/` including:
-- `tile_X_Y_mask.png`
-- `tile_X_Y_density.png`
-- `tree_data.json`
-- `tree_positions.json`
-
-### 4) (Optional) Building Detection
-
-Run from `Data_Pipeline/src/Building_Detection_Module`:
-
-```powershell
-cd ..\Building_Detection_Module
-python building_detector.py "C:\path\to\Data_Pipeline\outputs\unity_output\tiles_rgb"
-```
-
-Produces building metadata (for Unity building placement).
-
----
-
-## Unity Import Workflow
-
-### 1) Open Unity Project
-
-Open `Unity_Engine` with Unity Hub.
-
-### 2) Copy Python Outputs into Resources
-
-Copy these into:
-
-`Unity_Engine/Assets/Resources/Terrain_Tiles/`
-
-Required:
-- `tiles_height/`
-- `tiles_rgb/`
-- `tile_metadata.json`
-
-Optional:
-- `tiles_trees/` (for NDVI tree placement)
-- `buildings.json` (for building placement)
-
-### 3) Terrain Generation
-
-1. Add `TilePlacer` component.
-2. Set tile counts / folder names.
-3. Click **Read Json**.
-4. Click **Change Setup**.
-
-### 4) Building Placement (Optional)
-
-1. Ensure `buildings.json` exists under `Resources/Terrain_Tiles`.
-2. In `TilePlacer`, set Buildings Metadata File = `buildings`.
-3. Click **Read Building Json** then **Place Buildings**.
-
-### 5) NDVI Tree Placement (Optional)
-
-1. Add `NDVITreePlacer` component.
-2. Assign `TilePlacer` reference and tree prefabs.
-3. Use `tree_positions.json` or mask textures.
-4. Click **Place Trees**.
-
-For terrain trees, prefer compatible shaders such as **Nature/SpeedTree Billboard** on tree materials.
-
----
-
-## Common Commands (Quick Reference)
-
-```powershell
-# Activate environment
-cd Data_Pipeline
-.\venv\Scripts\activate
-
-# Terrain tiles
-cd src\Core_Terrain_Module
-python tiler.py "<rgb_tiles_folder>" "<dem_file>"
-
-# NDVI tiles + tree data
-cd ..\Tree_Detection_Module
-python crop_and_tile_ndvi.py "<ndvi_file>" "..\..\outputs\unity_output"
-python generate_tree_masks.py "..\..\outputs\unity_output" --threshold 0.4 --low-is-tree --density 0.05
+XP12_Buildings/
+├── Earth nav data/
+│   └── +30+030/
+│       └── +39+032.txt    ← needs compilation (see Step 4)
+├── apt.dat
+├── library.txt
+├── scenery_pack.ini
+└── README.txt
 ```
 
 ---
 
-## Troubleshooting
+## Step 4 — Compile DSF Files
 
-- **NDVI trees appear in wrong places**: use `--low-is-tree` for Copernicus NDVI exports.
-- **Trees too dense/sparse**: adjust `--density` and `--threshold`.
-- **Trees not visible in Unity**: verify tree prefab shader and terrain-tree compatibility.
-- **Tile alignment issues**: ensure input rasters use matching CRS or reprojection is correctly applied.
+X-Plane cannot read `.txt` scenery files directly. They must be compiled to `.dsf` using **DSFTool**.
+
+### Download DSFTool
+
+| Platform | Link |
+|---|---|
+| Windows | https://files.x-plane.com/public/xptools/xptools_win_24-5.zip |
+| macOS | https://files.x-plane.com/public/xptools/xptools_mac_24-5.zip |
+| Linux | https://files.x-plane.com/public/xptools/xptools_lin_24-5.zip |
+
+Extract the archive and use `DSFTool.exe` (Windows) or `DSFTool` (macOS/Linux).
+
+### Compile — Windows (PowerShell)
+
+```powershell
+Get-ChildItem "XP12_Buildings\Earth nav data" -Filter "*.txt" -Recurse | ForEach-Object {
+    .\DSFTool.exe --text2dsf $_.FullName ($_.FullName -replace '\.txt$','.dsf')
+}
+```
+
+### Compile — macOS / Linux
+
+```bash
+find "XP12_Buildings/Earth nav data" -name "*.txt" | while read f; do
+    ./DSFTool --text2dsf "$f" "${f%.txt}.dsf"
+done
+```
+
+> [!NOTE]
+> DSFTool is slow — expect **5–15 minutes per file**. It may appear unresponsive during compilation. This is normal.
 
 ---
 
-## Note
+## Step 5 — Install in X-Plane 12
 
-This is the single source of documentation for this repository.
+### Option A: Automatic (recommended)
+
+If you passed `--xplane` in Step 2, installation is already done. Skip to [launching](#launch).
+
+### Option B: Manual
+
+1. Copy the output folder into your Custom Scenery directory:
+
+   ```
+   XP12_Buildings/  →  X-Plane 12/Custom Scenery/XP12_Buildings/
+   ```
+
+2. Open `X-Plane 12/Custom Scenery/scenery_packs.ini` and add your package **near the top**, before `Global Airports`:
+
+   ```
+   I
+   1000 Version
+   SCENERY
+
+   SCENERY_PACK Custom Scenery/XP12_Buildings/
+   SCENERY_PACK Custom Scenery/Global Airports/
+   ```
+
+---
+
+## Launch
+
+Start X-Plane 12 and search for your package name (e.g. `My_City_Buildings`) in the location menu.
+

@@ -1,0 +1,23 @@
+# Extrinsic
+- File_Names
+    - Utils-Dir (field)
+    - Mask_dir (field)
+    - OSM_dir (field)
+    - Elevation_dir (field)
+    - Geotiff_dir (field)
+    - Tile_dir (field)
+    - Tmp_dir (field)
+- Config_Utils
+    - Tile (class)
+    - read_from_config (Tile method)
+    - local_data_root(?) (dynamically created and set in read_from_config)
+- UI_Utils
+    - local_data_root(?) 
+- Vector_Map
+    - build_poly_file (function)
+- Mesh_Utils
+    - build_mesh (function)
+- Mask_Utils
+    - build_masks (function)
+- Tile_Utils
+    - build_tile (function)

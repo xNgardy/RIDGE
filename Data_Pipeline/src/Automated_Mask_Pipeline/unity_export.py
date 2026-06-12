@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Create a Unity Resources/Terrain_Tiles-ready package."""
 
 from __future__ import annotations
 
@@ -37,7 +36,10 @@ def export_unity_package(
     if road_masks_dir:
         _copy_dir(Path(road_masks_dir), package_dir / "road_masks", copied, optional=True)
     if road_json_dir:
-        _copy_dir(Path(road_json_dir), package_dir / "roads", copied, optional=True)
+        legacy_roads_dir = package_dir / "roads"
+        if legacy_roads_dir.exists():
+            shutil.rmtree(legacy_roads_dir)
+        _copy_dir(Path(road_json_dir), package_dir / "Roads", copied, optional=True)
 
     return {"package_dir": str(package_dir), "copied_items": copied}
 

@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-Crops and tiles NDVI TIFF to match RGB tile grid structure.
-Uses tiles_height_tif as reference (they have proper georeferencing).
-
-Usage: 
-    python crop_and_tile_ndvi_fixed.py <ndvi_file> <unity_output_folder>
-
-Example:
-    python crop_and_tile_ndvi_fixed.py ndvi_aligned_to_rgb.tiff ./unity_output
-"""
 
 import sys
 import json
@@ -31,14 +21,12 @@ def main():
     ndvi_path = Path(sys.argv[1])
     unity_output = Path(sys.argv[2])
     
-    # Paths
     tile_metadata_path = unity_output / "tile_metadata.json"
-    tiles_height_tif_dir = unity_output / "tiles_height_tif"  # GeoTIFF reference
+    tiles_height_tif_dir = unity_output / "tiles_height_tif"
     tiles_ndvi_out = unity_output / "tiles_ndvi"
     
     ensure_dir(tiles_ndvi_out)
 
-    # Validate inputs
     if not ndvi_path.exists():
         print(f"Error: NDVI file not found at {ndvi_path}")
         raise SystemExit(1)
@@ -52,14 +40,12 @@ def main():
         print("Please run tiler.py first to generate height tiles.")
         raise SystemExit(1)
 
-    # Load tile metadata
     print("Loading tile metadata...")
     with open(tile_metadata_path, "r") as f:
         metadata = json.load(f)
     
     print(f"Found {len(metadata['tiles'])} tiles in metadata")
 
-    # Open NDVI file
     print(f"Opening NDVI file: {ndvi_path}")
     with rasterio.open(str(ndvi_path)) as ndvi_src:
         ndvi_crs = ndvi_src.crs
@@ -74,13 +60,11 @@ def main():
     processed = 0
     skipped = 0
 
-    # Process each tile
     for tile_info in metadata['tiles']:
         tx = tile_info['tile_x']
         ty = tile_info['tile_y']
         tile_name = f"tile_{tx}_{ty}"
         
-        # Get reference GeoTIFF from tiles_height_tif
         ref_tif_path = tiles_height_tif_dir / f"{tile_name}.tif"
         
         if not ref_tif_path.exists():
@@ -88,7 +72,6 @@ def main():
             skipped += 1
             continue
         
-        # Read reference tile properties
         with rasterio.open(str(ref_tif_path)) as ref_src:
             ref_bounds = ref_src.bounds
             ref_crs = ref_src.crs
@@ -96,10 +79,8 @@ def main():
             ref_width = ref_src.width
             ref_height = ref_src.height
         
-        # Create NDVI tile matching reference dimensions
         ndvi_tile = np.zeros((ref_height, ref_width), dtype=np.float32)
         
-        # Reproject NDVI to this tile's grid
         with rasterio.open(str(ndvi_path)) as ndvi_src:
             reproject(
                 source=rasterio.band(ndvi_src, 1),
@@ -111,7 +92,6 @@ def main():
                 resampling=Resampling.bilinear
             )
         
-        # Save tile as GeoTIFF (float32)
         ndvi_tile_path = tiles_ndvi_out / f"{tile_name}.tif"
         
         with rasterio.open(
@@ -128,12 +108,10 @@ def main():
         ) as dst:
             dst.write(ndvi_tile, 1)
         
-        # Calculate stats
         ndvi_min = float(np.nanmin(ndvi_tile))
         ndvi_max = float(np.nanmax(ndvi_tile))
         ndvi_mean = float(np.nanmean(ndvi_tile))
         
-        # Save as PNG preview (normalized to 0-255, colorized)
         if ndvi_max > ndvi_min:
             ndvi_norm = ((ndvi_tile - ndvi_min) / (ndvi_max - ndvi_min) * 255).astype(np.uint8)
         else:
@@ -143,12 +121,10 @@ def main():
         im = Image.fromarray(ndvi_norm)
         im.save(str(ndvi_png_path))
         
-        # Also save a colorized version (green gradient)
         colorized = np.zeros((ref_height, ref_width, 3), dtype=np.uint8)
-        # Red to Green gradient based on NDVI
-        colorized[:, :, 0] = (255 - ndvi_norm).astype(np.uint8)  # Red (low NDVI)
-        colorized[:, :, 1] = ndvi_norm  # Green (high NDVI)
-        colorized[:, :, 2] = 0  # Blue
+        colorized[:, :, 0] = (255 - ndvi_norm).astype(np.uint8)
+        colorized[:, :, 1] = ndvi_norm
+        colorized[:, :, 2] = 0
         
         ndvi_color_path = tiles_ndvi_out / f"{tile_name}_color.png"
         im_color = Image.fromarray(colorized)
@@ -168,7 +144,6 @@ def main():
         processed += 1
         print(f"  ✓ {tile_name}: NDVI range [{ndvi_min:.4f}, {ndvi_max:.4f}], mean: {ndvi_mean:.4f}")
 
-    # Save statistics
     stats_path = tiles_ndvi_out / "ndvi_stats.json"
     with open(stats_path, "w") as f:
         json.dump({

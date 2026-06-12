@@ -10,18 +10,21 @@ Thumbs.db
 *~
 
 # =========================
-# Python (scoped to Data_Pipeline)
+# Python
 # =========================
-Data_Pipeline/**/__pycache__/
-Data_Pipeline/**/*.py[cod]
-Data_Pipeline/**/*.pyo
-Data_Pipeline/**/*.pyd
-Data_Pipeline/**/.pytest_cache/
-Data_Pipeline/**/.mypy_cache/
-Data_Pipeline/**/.ruff_cache/
-Data_Pipeline/**/.ipynb_checkpoints/
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.ipynb_checkpoints/
 
-# Virtual environments (inside Data_Pipeline)
+# Virtual environments
+.venv/
+venv/
+env/
 Data_Pipeline/.venv/
 Data_Pipeline/venv/
 Data_Pipeline/env/
@@ -40,6 +43,20 @@ Data_Pipeline/*.egg-info/
 # =========================
 Data_Pipeline/inputs/
 Data_Pipeline/outputs/
+Data_Pipeline/experiments/
+*.aux.xml
+
+# Evaluation datasets and generated reports
+Data_Pipeline/src/Evaluation/**/data/
+Data_Pipeline/src/Evaluation/**/results/
+Data_Pipeline/src/Evaluation/**/*_evaluation.csv
+Data_Pipeline/src/Evaluation/**/*_evaluation.txt
+Data_Pipeline/src/Evaluation/**/*_per_*.csv
+Data_Pipeline/src/Tree_Detection_Module/forests/
+
+# Local caches and model runtime files
+cache/
+Data_Pipeline/src/Building_Detection_Module/models/_file_locks/
 
 # =========================
 # Unity (Unity_Engine) — standard Unity .gitignore
@@ -83,11 +100,6 @@ Unity_Engine/sysinfo.txt
 Unity_Engine/Assets/AssetStoreTools*
 
 # =========================
-# Images
-# =========================
-*.png
-
-# =========================
 # Miscellaneous
 # =========================
 *.onnx
@@ -96,4 +108,5 @@ Unity_Engine/Assets/AssetStoreTools*
 *.tmp
 Data_Pipeline/src/Tree_Detection_Module/xplane/RIDGE_Trees_Strict
 Data_Pipeline/src/Tree_Detection_Module/xplane/xptools_mac_24-5
-Data_Pipeline/src/Tree_Detection_Module/xplane/+37+036_strict.dsf
+Data_Pipeline/src/Tree_Detection_Module/xplane/*.dsf
+Data_Pipeline/src/Tree_Detection_Module/xplane/ridge_forests_test*.txt

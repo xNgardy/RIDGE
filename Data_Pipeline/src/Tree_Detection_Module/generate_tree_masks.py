@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""
-Generates tree placement masks from NDVI tiles.
-Creates binary masks and tree position data for Unity.
-
-Usage:
-    python generate_tree_masks.py <unity_output_folder> [options]
-
-Example:
-    python generate_tree_masks.py ./unity_output --threshold 0.55 --density 0.1
-    python generate_tree_masks.py ./unity_output --threshold 0.4 --invert  # Ters mantık
-"""
 
 import sys
 import json
@@ -23,36 +12,27 @@ def ensure_dir(p: Path):
 
 def generate_tree_positions(mask: np.ndarray, density: float, tile_x: int, tile_y: int, 
                             tile_width: int, tile_height: int) -> list:
-    """
-    Generate tree positions from binary mask.
-    Returns list of normalized positions (0-1 range within tile).
-    """
     positions = []
     
-    # Find all pixels where trees can be placed
     tree_pixels = np.argwhere(mask > 0)
     
     if len(tree_pixels) == 0:
         return positions
     
-    # Sample based on density
     num_trees = int(len(tree_pixels) * density)
     if num_trees == 0 and len(tree_pixels) > 0:
         num_trees = 1
     
-    # Random sampling
     if num_trees < len(tree_pixels):
         indices = np.random.choice(len(tree_pixels), num_trees, replace=False)
         selected_pixels = tree_pixels[indices]
     else:
         selected_pixels = tree_pixels
     
-    # Convert to normalized positions
     for py, px in selected_pixels:
         norm_x = px / mask.shape[1]
         norm_y = py / mask.shape[0]
         
-        # Add small random offset
         norm_x += np.random.uniform(-0.5, 0.5) / mask.shape[1]
         norm_y += np.random.uniform(-0.5, 0.5) / mask.shape[0]
         
@@ -122,7 +102,6 @@ def main():
         tile_x = int(parts[1])
         tile_y = int(parts[2])
         
-        # Load NDVI data
         try:
             import rasterio
             with rasterio.open(str(ndvi_path)) as src:
@@ -136,35 +115,28 @@ def main():
         
         height, width = ndvi_data.shape
         
-        # Create tree mask based on mode
         if args.low_is_tree:
-            # Low NDVI = trees (inverted interpretation)
             tree_mask = (ndvi_data <= args.threshold).astype(np.uint8)
         else:
-            # Normal: High NDVI = trees
             tree_mask = (ndvi_data >= args.threshold).astype(np.uint8)
         
-        # Invert if requested
         if args.invert:
             tree_mask = 1 - tree_mask
         
         tree_pixels = np.sum(tree_mask)
         total_pixels = ndvi_data.size
         
-        # Generate tree positions
         positions = generate_tree_positions(
             tree_mask, args.density, tile_x, tile_y, width, height
         )
         
-        # Save binary mask
         mask_img = Image.fromarray(tree_mask * 255)
         mask_path = tiles_trees_out / f"{tile_name}_mask.png"
         mask_img.save(str(mask_path))
         
-        # Save density map
         density_map = np.zeros_like(ndvi_data, dtype=np.uint8)
         if args.low_is_tree:
-            normalized = 1.0 - ndvi_data  # Invert for visualization
+            normalized = 1.0 - ndvi_data
         else:
             normalized = ndvi_data
         normalized = np.clip(normalized, 0, 1)
@@ -193,7 +165,6 @@ def main():
         
         print(f"  ✓ {tile_name}: {len(positions)} trees ({100*tree_pixels/total_pixels:.1f}% tree area)")
     
-    # Save JSON files
     output_json = {
         "settings": {
             "threshold": args.threshold,
@@ -214,7 +185,6 @@ def main():
     with open(json_path, "w") as f:
         json.dump(output_json, f, indent=2)
     
-    # Positions only (for Unity)
     positions_only = {}
     for tile in all_tree_data:
         positions_only[tile["tile_name"]] = tile["tree_positions"]

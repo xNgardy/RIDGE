@@ -1,40 +1,164 @@
-using UnityEngine;
+using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 [ExecuteInEditMode]
 public class TerrainMaterialPainter : MonoBehaviour
 {
+    [Serializable]
+    public class SurfaceRule
+    {
+        public string ruleName = "New Surface";
+        public TerrainLayer terrainLayer;
+
+        [Header("HSV Detection")]
+        [Range(0f, 1f)] public float minHue = 0f;
+        [Range(0f, 1f)] public float maxHue = 1f;
+        [Range(0f, 1f)] public float minSaturation = 0f;
+        [Range(0f, 1f)] public float maxSaturation = 1f;
+        [Range(0f, 1f)] public float minValue = 0f;
+        [Range(0f, 1f)] public float maxValue = 1f;
+
+        [Header("Blend")]
+        [Range(0f, 2f)] public float strength = 1f;
+        [Range(0.001f, 0.25f)] public float edgeSoftness = 0.05f;
+    }
+
     [Header("References")]
     public TilePlacer tilePlacer;
-    
+
     [Header("Folder Settings")]
     public string tilesFolder = "Terrain_Tiles";
-    public string textureFolder = "tiles_rgb"; // Folder containing PNGs output by tiler.py
+    public string textureFolder = "tiles_rgb";
 
-    [Header("Materials (Splatmap)")]
-    public TerrainLayer dirtLayer;  // Dirt/Rock texture
-    public TerrainLayer grassLayer; // Grass/Vegetation texture
+    [Header("Fallback Layer")]
+    [Tooltip("Used where no surface rule matches strongly enough.")]
+    public TerrainLayer fallbackLayer;
 
-    [Header("Advanced Color Settings (HSV)")]
+    [Header("Surface Rules")]
+    public SurfaceRule[] surfaceRules =
+    {
+        new()
+        {
+            ruleName = "Grass / Vegetation",
+            minHue = 0.22f,
+            maxHue = 0.46f,
+            minSaturation = 0.16f,
+            maxSaturation = 1f,
+            minValue = 0.14f,
+            maxValue = 0.78f,
+            strength = 1.15f,
+            edgeSoftness = 0.04f
+        },
+        new()
+        {
+            ruleName = "Dry Field / Yellow Farmland",
+            minHue = 0.09f,
+            maxHue = 0.18f,
+            minSaturation = 0.20f,
+            maxSaturation = 0.58f,
+            minValue = 0.30f,
+            maxValue = 0.78f,
+            strength = 0.9f,
+            edgeSoftness = 0.035f
+        },
+        new()
+        {
+            ruleName = "Concrete / Urban Ground",
+            minHue = 0f,
+            maxHue = 1f,
+            minSaturation = 0f,
+            maxSaturation = 0.16f,
+            minValue = 0.48f,
+            maxValue = 0.95f,
+            strength = 0.85f,
+            edgeSoftness = 0.03f
+        },
+        new()
+        {
+            ruleName = "Bare Soil / Brown Field",
+            minHue = 0.00f,
+            maxHue = 0.10f,
+            minSaturation = 0.14f,
+            maxSaturation = 0.55f,
+            minValue = 0.20f,
+            maxValue = 0.68f,
+            strength = 0.65f,
+            edgeSoftness = 0.04f
+        }
+    };
+
+    [Header("Blend Settings")]
     [Range(0f, 1f)]
-    [Tooltip("Starting hue for green detection. Lower values (e.g. 0.08) include yellowing grass.")]
-    public float minGreenHue = 0.08f; 
+    public float fallbackMinimumWeight = 0.35f;
 
-    [Range(0f, 1f)]
-    [Tooltip("Ending hue for green detection. Higher values include bluish/dark forests.")]
-    public float maxGreenHue = 0.45f;
+    [Range(0.001f, 0.5f)]
+    public float minimumTotalRuleScore = 0.08f;
 
-    [Range(0f, 1f)]
-    [Tooltip("Minimum saturation threshold. Prevents grey concrete/asphalt from being detected as green.")]
-    public float minSaturation = 0.15f;
-    
-    [Range(1f, 10f)]
-    [Tooltip("Smoothness of the blend transition between dirt and grass.")]
-    public float blendSoftness = 5f;
+    private void Reset()
+    {
+        LoadIslahiyePreset();
+    }
 
-    /// <summary>
-    /// Paints Dirt and Grass materials based on satellite image colors.
-    /// </summary>
+    [ContextMenu("Load Islahiye Preset")]
+    public void LoadIslahiyePreset()
+    {
+        surfaceRules = new SurfaceRule[]
+        {
+            new()
+            {
+                ruleName = "Grass / Vegetation",
+                minHue = 0.22f,
+                maxHue = 0.46f,
+                minSaturation = 0.16f,
+                maxSaturation = 1f,
+                minValue = 0.14f,
+                maxValue = 0.78f,
+                strength = 1.15f,
+                edgeSoftness = 0.04f
+            },
+            new()
+            {
+                ruleName = "Dry Field / Yellow Farmland",
+                minHue = 0.09f,
+                maxHue = 0.18f,
+                minSaturation = 0.20f,
+                maxSaturation = 0.58f,
+                minValue = 0.30f,
+                maxValue = 0.78f,
+                strength = 0.9f,
+                edgeSoftness = 0.035f
+            },
+            new()
+            {
+                ruleName = "Concrete / Urban Ground",
+                minHue = 0f,
+                maxHue = 1f,
+                minSaturation = 0f,
+                maxSaturation = 0.16f,
+                minValue = 0.48f,
+                maxValue = 0.95f,
+                strength = 0.85f,
+                edgeSoftness = 0.03f
+            },
+            new()
+            {
+                ruleName = "Bare Soil / Brown Field",
+                minHue = 0.00f,
+                maxHue = 0.10f,
+                minSaturation = 0.14f,
+                maxSaturation = 0.55f,
+                minValue = 0.20f,
+                maxValue = 0.68f,
+                strength = 0.65f,
+                edgeSoftness = 0.04f
+            }
+        };
+
+        fallbackMinimumWeight = 0.35f;
+        minimumTotalRuleScore = 0.08f;
+    }
+
     public void ApplyMaterialMasks()
     {
         if (tilePlacer == null || tilePlacer.tiles == null || tilePlacer.tiles.Count == 0)
@@ -43,34 +167,45 @@ public class TerrainMaterialPainter : MonoBehaviour
             return;
         }
 
-        if (dirtLayer == null || grassLayer == null)
+        if (fallbackLayer == null)
         {
-            Debug.LogError("TerrainMaterialPainter: Please assign Dirt and Grass Terrain Layers in the Inspector.");
+            Debug.LogError("TerrainMaterialPainter: Please assign a fallback Terrain Layer.");
             return;
         }
 
+        List<SurfaceRule> activeRules = GetActiveRules();
+        if (activeRules.Count == 0)
+        {
+            Debug.LogError("TerrainMaterialPainter: Please assign at least one Surface Rule with a Terrain Layer.");
+            return;
+        }
+
+        TerrainLayer[] terrainLayers = BuildTerrainLayers(activeRules);
+
         foreach (var tile in tilePlacer.tiles)
         {
-            if (tile.terrain == null) continue;
+            if (tile.terrain == null)
+            {
+                continue;
+            }
 
-            // Load satellite image from Resources folder
             string texPath = $"{tilesFolder}/{textureFolder}/{tile.terrain.name}";
             Texture2D colorMap = Resources.Load<Texture2D>(texPath);
-            
+
             if (colorMap == null)
             {
                 Debug.LogWarning($"TerrainMaterialPainter: Texture not found -> {texPath}");
                 continue;
             }
 
-            TerrainData tData = tile.terrain.terrainData;
-            
-            // Assign the 2 material layers to the terrain
-            tData.terrainLayers = new TerrainLayer[] { dirtLayer, grassLayer };
+            TerrainData terrainData = tile.terrain.terrainData;
+            terrainData.terrainLayers = terrainLayers;
 
-            int alphaWidth = tData.alphamapWidth;
-            int alphaHeight = tData.alphamapHeight;
-            float[,,] splatmapData = new float[alphaHeight, alphaWidth, 2];
+            int alphaWidth = terrainData.alphamapWidth;
+            int alphaHeight = terrainData.alphamapHeight;
+            int layerCount = terrainLayers.Length;
+            float[,,] splatmapData = new float[alphaHeight, alphaWidth, layerCount];
+            float[] ruleScores = new float[activeRules.Count];
 
             for (int y = 0; y < alphaHeight; y++)
             {
@@ -78,81 +213,157 @@ public class TerrainMaterialPainter : MonoBehaviour
                 {
                     float normX = (float)x / (alphaWidth - 1);
                     float normY = (float)y / (alphaHeight - 1);
-
-                    // Sample the satellite pixel at this point
                     Color pixel = colorMap.GetPixelBilinear(normX, normY);
 
-                    // Convert RGB to HSV (H=Hue, S=Saturation, V=Brightness)
-                    float h, s, v;
-                    Color.RGBToHSV(pixel, out h, out s, out v);
-
-                    float grassWeight = 0f;
-
-                    // If the pixel falls within the green/yellow hue range and is not too faded/grey
-                    if (h >= minGreenHue && h <= maxGreenHue && s >= minSaturation)
-                    {
-                        // Increase grass weight based on saturation and brightness
-                        grassWeight = Mathf.Clamp01(s * v * blendSoftness); 
-                    }
-
-                    // Write weights to the splatmap (index 0 = Dirt, index 1 = Grass)
-                    splatmapData[y, x, 0] = 1f - grassWeight; 
-                    splatmapData[y, x, 1] = grassWeight;      
+                    Color.RGBToHSV(pixel, out float hue, out float saturation, out float value);
+                    WriteSurfaceWeights(splatmapData, ruleScores, x, y, activeRules, hue, saturation, value);
                 }
             }
 
-            // Apply the splatmap to the terrain
-            tData.SetAlphamaps(0, 0, splatmapData);
+            terrainData.SetAlphamaps(0, 0, splatmapData);
         }
-        
-        Debug.Log("TerrainMaterialPainter: Terrain painted successfully based on satellite colors!");
+
+        Debug.Log("TerrainMaterialPainter: Terrain painted successfully with surface rules.");
     }
 
-    /// <summary>
-    /// Reverts all terrains back to the original satellite image texture.
-    /// </summary>
     public void RevertToSatelliteImage()
     {
-        if (tilePlacer == null || tilePlacer.tiles == null) return;
+        if (tilePlacer == null || tilePlacer.tiles == null)
+        {
+            return;
+        }
 
         foreach (var tile in tilePlacer.tiles)
         {
-            if (tile.terrain == null) continue;
+            if (tile.terrain == null)
+            {
+                continue;
+            }
 
             string texPath = $"{tilesFolder}/{textureFolder}/{tile.terrain.name}";
             Texture2D colorMap = Resources.Load<Texture2D>(texPath);
-            
-            if (colorMap == null) continue;
 
-            TerrainData tData = tile.terrain.terrainData;
+            if (colorMap == null)
+            {
+                Debug.LogWarning($"TerrainMaterialPainter: Texture not found -> {texPath}");
+                continue;
+            }
 
-            TerrainLayer satLayer = new TerrainLayer 
-            { 
-                diffuseTexture = colorMap, 
-                tileSize = new Vector2(tData.size.x, tData.size.z) 
+            TerrainData terrainData = tile.terrain.terrainData;
+            TerrainLayer satelliteLayer = new()
+            {
+                diffuseTexture = colorMap,
+                tileSize = new Vector2(terrainData.size.x, terrainData.size.z)
             };
-            
-            // Replace terrain layers with the single satellite layer
-            tData.terrainLayers = new TerrainLayer[] { satLayer };
 
-            // Reset the alphamap so the single layer gets full weight everywhere.
-            // Without this, the old splatmap data from ApplyMaterialMasks would persist,
-            // causing areas that had partial weights for the (now removed) second layer
-            // to render incorrectly (black patches or missing textures).
-            int alphaWidth = tData.alphamapWidth;
-            int alphaHeight = tData.alphamapHeight;
+            terrainData.terrainLayers = new[] { satelliteLayer };
+
+            int alphaWidth = terrainData.alphamapWidth;
+            int alphaHeight = terrainData.alphamapHeight;
             float[,,] splatmapData = new float[alphaHeight, alphaWidth, 1];
 
             for (int y = 0; y < alphaHeight; y++)
             {
                 for (int x = 0; x < alphaWidth; x++)
                 {
-                    splatmapData[y, x, 0] = 1f; // 100% weight to the satellite layer
+                    splatmapData[y, x, 0] = 1f;
                 }
             }
 
-            tData.SetAlphamaps(0, 0, splatmapData);
+            terrainData.SetAlphamaps(0, 0, splatmapData);
         }
-        Debug.Log("TerrainMaterialPainter: All terrains reverted to original satellite image.");
+
+        Debug.Log("TerrainMaterialPainter: All terrains reverted to original satellite images.");
+    }
+
+    private List<SurfaceRule> GetActiveRules()
+    {
+        List<SurfaceRule> activeRules = new();
+
+        if (surfaceRules == null)
+        {
+            return activeRules;
+        }
+
+        foreach (SurfaceRule rule in surfaceRules)
+        {
+            if (rule != null && rule.terrainLayer != null)
+            {
+                activeRules.Add(rule);
+            }
+        }
+
+        return activeRules;
+    }
+
+    private TerrainLayer[] BuildTerrainLayers(List<SurfaceRule> activeRules)
+    {
+        TerrainLayer[] terrainLayers = new TerrainLayer[activeRules.Count + 1];
+        terrainLayers[0] = fallbackLayer;
+
+        for (int i = 0; i < activeRules.Count; i++)
+        {
+            terrainLayers[i + 1] = activeRules[i].terrainLayer;
+        }
+
+        return terrainLayers;
+    }
+
+    private void WriteSurfaceWeights(float[,,] splatmapData, float[] ruleScores, int x, int y, List<SurfaceRule> activeRules, float hue, float saturation, float value)
+    {
+        float totalScore = 0f;
+
+        for (int i = 0; i < activeRules.Count; i++)
+        {
+            SurfaceRule rule = activeRules[i];
+            float score = GetRuleScore(rule, hue, saturation, value) * rule.strength;
+            ruleScores[i] = score;
+            totalScore += score;
+        }
+
+        if (totalScore < minimumTotalRuleScore)
+        {
+            splatmapData[y, x, 0] = 1f;
+            return;
+        }
+
+        float fallbackWeight = Mathf.Clamp01(fallbackMinimumWeight * (1f - Mathf.Clamp01(totalScore)));
+        float ruleWeightSpace = 1f - fallbackWeight;
+
+        splatmapData[y, x, 0] = fallbackWeight;
+
+        for (int i = 0; i < activeRules.Count; i++)
+        {
+            splatmapData[y, x, i + 1] = (ruleScores[i] / totalScore) * ruleWeightSpace;
+        }
+    }
+
+    private float GetRuleScore(SurfaceRule rule, float hue, float saturation, float value)
+    {
+        float hueScore = GetHueScore(hue, rule.minHue, rule.maxHue, rule.edgeSoftness);
+        float saturationScore = GetRangeScore(saturation, rule.minSaturation, rule.maxSaturation, rule.edgeSoftness);
+        float valueScore = GetRangeScore(value, rule.minValue, rule.maxValue, rule.edgeSoftness);
+
+        return hueScore * saturationScore * valueScore;
+    }
+
+    private float GetHueScore(float hue, float minHue, float maxHue, float softness)
+    {
+        if (minHue <= maxHue)
+        {
+            return GetRangeScore(hue, minHue, maxHue, softness);
+        }
+
+        float lowerRangeScore = GetRangeScore(hue, minHue, 1f, softness);
+        float upperRangeScore = GetRangeScore(hue, 0f, maxHue, softness);
+        return Mathf.Max(lowerRangeScore, upperRangeScore);
+    }
+
+    private float GetRangeScore(float value, float min, float max, float softness)
+    {
+        float lower = Mathf.InverseLerp(min - softness, min + softness, value);
+        float upper = 1f - Mathf.InverseLerp(max - softness, max + softness, value);
+
+        return Mathf.Clamp01(Mathf.Min(lower, upper));
     }
 }

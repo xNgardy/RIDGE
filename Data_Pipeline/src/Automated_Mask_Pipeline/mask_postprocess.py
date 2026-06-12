@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Collision cleanup helpers for generated road, tree, and building masks."""
 
 from __future__ import annotations
 
@@ -16,7 +15,6 @@ def ensure_dir(path: Path) -> None:
 
 
 def _load_occupancy(mask_path: Path, size: tuple[int, int]) -> np.ndarray:
-    """Return True where a mask contains any occupied pixel."""
     if not mask_path.exists():
         return np.zeros((size[1], size[0]), dtype=bool)
 
@@ -42,7 +40,6 @@ def complete_buildings_json_from_images(
     buildings_json_path: Path,
     image_dir: Path,
 ) -> dict:
-    """Ensure building JSON contains one entry for every Unity RGB tile image."""
     buildings_json_path = Path(buildings_json_path)
     image_dir = Path(image_dir)
 
@@ -107,7 +104,6 @@ def clean_tree_masks_against_roads(
     *,
     update_json: bool = True,
 ) -> dict:
-    """Remove all road pixels from tree masks and tree position JSON files."""
     tree_dir = Path(tree_dir)
     road_dir = Path(road_dir)
 
@@ -146,7 +142,6 @@ def clean_tree_masks_against_roads(
 
 
 def complete_tree_outputs_from_images(tree_dir: Path, image_dir: Path) -> dict:
-    """Ensure every Unity RGB tile has a tree mask and tree_positions entry."""
     tree_dir = Path(tree_dir)
     image_dir = Path(image_dir)
     ensure_dir(tree_dir)
@@ -186,7 +181,6 @@ def complete_tree_outputs_from_images(tree_dir: Path, image_dir: Path) -> dict:
 
 
 def complete_road_masks_from_images(road_dir: Path, image_dir: Path) -> dict:
-    """Ensure every Unity RGB tile has a road mask, using blank masks when needed."""
     road_dir = Path(road_dir)
     image_dir = Path(image_dir)
     ensure_dir(road_dir)
@@ -212,7 +206,6 @@ def complete_road_masks_from_images(road_dir: Path, image_dir: Path) -> dict:
 
 
 def complete_road_jsons_from_images(road_json_dir: Path, image_dir: Path, road_width_m: float) -> dict:
-    """Ensure every Unity RGB tile has a RoadLineBuilder JSON file."""
     road_json_dir = Path(road_json_dir)
     image_dir = Path(image_dir)
     ensure_dir(road_json_dir)
@@ -321,7 +314,6 @@ def create_clean_building_masks(
     cleaned_buildings_json_path: Path | None = None,
     remove_colliding_buildings_from_json: bool = True,
 ) -> dict:
-    """Create building masks and remove pixels occupied by roads or trees."""
     buildings_json_path = Path(buildings_json_path)
     output_dir = Path(output_dir)
     road_dir = Path(road_dir)

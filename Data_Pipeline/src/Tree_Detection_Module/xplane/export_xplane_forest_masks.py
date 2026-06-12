@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""
-Export RIDGE tree mask PNGs to X-Plane DSF Text forest polygons.
-
-This is the faster X-Plane path for dense vegetation: instead of writing one
-OBJECT per detected tree, it converts each binary mask region into a forest
-polygon that X-Plane fills at runtime from a .for resource.
-
-Usage:
-    python export_xplane_forest_masks.py <unity_output_folder> [output_txt_file]
-
-Example:
-    python export_xplane_forest_masks.py ../../../outputs/unity_output ridge_forests_strict.txt --exclude-objects
-    xptools_mac_24-5/tools/DSFTool --text2dsf ridge_forests_strict.txt +37+036_strict.dsf
-"""
 
 import argparse
 import math
@@ -86,8 +72,6 @@ def contour_to_points(contour, transform, simplify_px: float, ccw: bool):
 
     lonlat = [pixel_to_lonlat(float(col), float(row), transform) for col, row in pts]
 
-    # Drop a duplicate closing point if OpenCV ever returns one. DSF windings
-    # are implicitly closed.
     if len(lonlat) > 1 and lonlat[0] == lonlat[-1]:
         lonlat = lonlat[:-1]
 
@@ -215,7 +199,6 @@ def write_dsf_text(
     if exclude_lower_priority_objects:
         lines.append(f"PROPERTY sim/exclude_obj {exclusion}")
 
-    # X-Plane requires the bounds properties to be the last PROPERTY commands.
     lines.extend(
         [
             f"PROPERTY sim/west {west}",

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Export per-tile vector road JSON files for Unity RoadLineBuilder."""
 
 from __future__ import annotations
 
@@ -121,7 +120,6 @@ def _parse_tile_name(name: str) -> tuple[int, int]:
 
 
 def _unity_name_map(tif_paths: list[Path]) -> dict[Path, tuple[int, int]]:
-    """Match Road_rgb_mask.py's raw tile coordinate -> Unity tile index swap."""
     raw_coords = {path: _parse_tile_name(path.stem) for path in tif_paths}
     xs = sorted({coord[0] for coord in raw_coords.values()})
     ys = sorted({coord[1] for coord in raw_coords.values()})

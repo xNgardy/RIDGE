@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Run the automatic non-XPlane mask pipeline from the command line or GUI."""
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 try:
@@ -36,11 +37,164 @@ THIS_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = THIS_DIR.parents[2]
 DATA_PIPELINE = PROJECT_ROOT / "Data_Pipeline"
 SRC_DIR = DATA_PIPELINE / "src"
+DEFAULT_RAMP_BUILDING_MODEL = (
+    SRC_DIR
+    / "Building_Detection_Module"
+    / "models"
+    / "building-footprint-extract"
+    / "3"
+    / "weights.onnx"
+)
+DEFAULT_PREPARED_RGB_TIFS = DATA_PIPELINE / "outputs" / "RGB_tifs"
+DEFAULT_PREPARED_UNITY_OUTPUT = DATA_PIPELINE / "outputs" / "unity_output"
+DEFAULT_RAW_WORK_DIR = DATA_PIPELINE / "outputs" / "automatic_run"
+DEFAULT_UNITY_PACKAGE_DIR = DATA_PIPELINE / "outputs" / "unity_ready" / "Terrain_Tiles"
+CONFLICTING_GEOSPATIAL_ENV_VARS = (
+    "PROJ_DATA",
+    "PROJ_LIB",
+    "GDAL_DATA",
+    "GDAL_DRIVER_PATH",
+)
 
 
 def run_command(command: list[str], *, env: dict | None = None) -> None:
     print("\n> " + " ".join(str(part) for part in command), flush=True)
-    subprocess.run(command, check=True, env=env)
+    subprocess.run(command, check=True, env=clean_subprocess_env(env))
+
+
+def clean_subprocess_env(env: dict | None = None) -> dict:
+    cleaned = dict(env or os.environ)
+    for key in CONFLICTING_GEOSPATIAL_ENV_VARS:
+        cleaned.pop(key, None)
+    cache_root = Path(tempfile.gettempdir()) / "ridge-pipeline-cache"
+    matplotlib_cache = cache_root / "matplotlib"
+    matplotlib_cache.mkdir(parents=True, exist_ok=True)
+    cleaned.setdefault("MPLCONFIGDIR", str(matplotlib_cache))
+    cleaned.setdefault("XDG_CACHE_HOME", str(cache_root))
+    return cleaned
+
+
+def configure_runtime_environment() -> None:
+    for key in CONFLICTING_GEOSPATIAL_ENV_VARS:
+        os.environ.pop(key, None)
+
+
+def configure_paths(args: argparse.Namespace) -> None:
+    if args.input_mode == "raw":
+        args.work_dir = (args.work_dir or DEFAULT_RAW_WORK_DIR).resolve()
+        args.rgb_tifs = args.work_dir / "RGB_tifs"
+        args.unity_output = args.work_dir / "unity_output"
+    else:
+        args.rgb_tifs = (args.rgb_tifs or DEFAULT_PREPARED_RGB_TIFS).resolve()
+        args.unity_output = (args.unity_output or DEFAULT_PREPARED_UNITY_OUTPUT).resolve()
+
+    args.building_images = (args.building_images or args.unity_output / "tiles_rgb").resolve()
+    args.buildings_json = (args.buildings_json or args.unity_output / "buildings.json").resolve()
+    args.cleaned_buildings_json = (
+        args.cleaned_buildings_json or args.unity_output / "buildings_cleaned.json"
+    ).resolve()
+    args.building_masks_out = (
+        args.building_masks_out or args.unity_output / "tiles_buildings"
+    ).resolve()
+    args.unity_package_dir = (args.unity_package_dir or DEFAULT_UNITY_PACKAGE_DIR).resolve()
+    args.ramp_building_model = args.ramp_building_model.resolve()
+    args.ndvi_file = args.ndvi_file.resolve() if args.ndvi_file else None
+    args.raw_rgb_file = args.raw_rgb_file.resolve() if args.raw_rgb_file else None
+    args.dem_file = args.dem_file.resolve() if args.dem_file else None
+    args.road_masks = args.road_masks.resolve() if args.road_masks else args.rgb_tifs / "_roads_out_rgb"
+    args.tree_masks = args.tree_masks.resolve() if args.tree_masks else args.unity_output / "tiles_trees"
+
+
+def validate_inputs(args: argparse.Namespace) -> None:
+    if not args.skip_buildings and args.building_detector == "ramp":
+        if not args.ramp_building_model.is_file():
+            raise FileNotFoundError(f"RAMP building model not found: {args.ramp_building_model}")
+
+    if args.input_mode == "raw":
+        missing = []
+        if args.raw_rgb_file is None or not args.raw_rgb_file.is_file():
+            missing.append("Raw RGB GeoTIFF")
+        if args.dem_file is None or not args.dem_file.is_file():
+            missing.append("DEM GeoTIFF")
+        if not args.skip_trees and (args.ndvi_file is None or not args.ndvi_file.is_file()):
+            missing.append("NDVI GeoTIFF")
+        if missing:
+            raise FileNotFoundError("Missing raw input(s): " + ", ".join(missing))
+        if args.tile_size <= 0 or args.tile_size & (args.tile_size - 1):
+            raise ValueError("Tile size must be a positive power of two, such as 256, 512, or 1024.")
+        if (
+            args.skip_roads
+            or args.skip_road_json
+            or args.skip_ndvi_tiling
+            or args.skip_trees
+            or args.skip_buildings
+        ):
+            raise ValueError(
+                "Skip options cannot be used in raw mode because its working data is rebuilt from scratch."
+            )
+        if args.rgb_tifs == DEFAULT_PREPARED_RGB_TIFS.resolve() or (
+            args.unity_output == DEFAULT_PREPARED_UNITY_OUTPUT.resolve()
+        ):
+            raise ValueError(
+                "Raw mode cannot overwrite the default prepared-data folders. "
+                "Choose a separate intermediate workspace."
+            )
+        generated_dirs = (args.rgb_tifs, args.unity_output)
+        source_files = (args.raw_rgb_file, args.dem_file, args.ndvi_file)
+        for source in source_files:
+            if source and any(source.is_relative_to(directory) for directory in generated_dirs):
+                raise ValueError(
+                    f"Raw input {source} is inside a generated output folder and would be deleted."
+                )
+        return
+
+    required = [
+        args.rgb_tifs,
+        args.unity_output / "tile_metadata.json",
+        args.unity_output / "tiles_rgb",
+        args.unity_output / "tiles_height",
+        args.unity_output / "tiles_height_tif",
+    ]
+    missing = [str(path) for path in required if not path.exists()]
+    if not args.skip_trees and args.skip_ndvi_tiling:
+        tiles_ndvi = args.unity_output / "tiles_ndvi"
+        if not tiles_ndvi.exists() or not any(tiles_ndvi.glob("tile_*.tif")):
+            missing.append(str(tiles_ndvi))
+    if missing:
+        raise FileNotFoundError(
+            "Prepared mode is missing required files/folders:\n- " + "\n- ".join(missing)
+        )
+
+
+def prepare_raw_inputs(args: argparse.Namespace) -> None:
+    print("\nPreparing Unity tile data from raw GeoTIFFs.")
+    print(f"Raw RGB GeoTIFF: {args.raw_rgb_file}")
+    print(f"Raw DEM GeoTIFF: {args.dem_file}")
+    print(f"Raw-data workspace: {args.work_dir}")
+
+    for path in (args.rgb_tifs, args.unity_output):
+        if path.exists():
+            shutil.rmtree(path)
+    args.work_dir.mkdir(parents=True, exist_ok=True)
+
+    rgb_slicer = SRC_DIR / "Core_Terrain_Module" / "rgb_slicer.py"
+    terrain_tiler = SRC_DIR / "Core_Terrain_Module" / "tiler.py"
+    run_command([
+        args.python,
+        str(rgb_slicer),
+        str(args.raw_rgb_file),
+        str(args.rgb_tifs),
+        "--tile-size",
+        str(args.tile_size),
+    ])
+    run_command([
+        args.python,
+        str(terrain_tiler),
+        str(args.rgb_tifs),
+        str(args.dem_file),
+        str(args.unity_output),
+    ])
+    print("Raw RGB and DEM preparation finished.")
 
 
 def run_roads(args: argparse.Namespace) -> Path:
@@ -135,31 +289,18 @@ def _load_module(path: Path):
 
 
 def run_pipeline(args: argparse.Namespace) -> None:
-    args.rgb_tifs = args.rgb_tifs.resolve()
-    args.unity_output = args.unity_output.resolve()
-    args.building_images = args.building_images.resolve()
-    args.buildings_json = args.buildings_json.resolve()
-    args.cleaned_buildings_json = args.cleaned_buildings_json.resolve()
-    args.building_masks_out = args.building_masks_out.resolve()
-    args.unity_package_dir = args.unity_package_dir.resolve()
-    args.ramp_building_model = args.ramp_building_model.resolve()
-    args.road_masks = args.road_masks.resolve() if args.road_masks else args.rgb_tifs / "_roads_out_rgb"
-    args.tree_masks = args.tree_masks.resolve() if args.tree_masks else args.unity_output / "tiles_trees"
+    configure_runtime_environment()
+    configure_paths(args)
+    validate_inputs(args)
 
     print("Automatic mask pipeline started.")
+    print(f"Input mode: {args.input_mode}")
     print(f"RGB GeoTIFF folder: {args.rgb_tifs}")
     print(f"Unity output folder: {args.unity_output}")
     print(f"Building detector: {args.building_detector}")
 
-    buildings_json = args.buildings_json
-    if not args.skip_buildings:
-        buildings_json = run_buildings(args)
-        completion_summary = complete_buildings_json_from_images(buildings_json, args.building_images)
-        print(f"Building JSON completion summary: {completion_summary}")
-    else:
-        print(f"Skipping building detection; using existing building JSON: {buildings_json}")
-        completion_summary = complete_buildings_json_from_images(buildings_json, args.building_images)
-        print(f"Building JSON completion summary: {completion_summary}")
+    if args.input_mode == "raw":
+        prepare_raw_inputs(args)
 
     road_masks = args.road_masks
     if not args.skip_roads:
@@ -188,8 +329,20 @@ def run_pipeline(args: argparse.Namespace) -> None:
         print(f"Tree output completion summary: {tree_completion_summary}")
     else:
         print(f"Skipping tree masks; using existing tree masks: {tree_masks}")
+        tree_summary = clean_tree_masks_against_roads(tree_masks, road_masks)
+        print(f"Tree-road cleanup summary: {tree_summary}")
         tree_completion_summary = complete_tree_outputs_from_images(tree_masks, args.building_images)
         print(f"Tree output completion summary: {tree_completion_summary}")
+
+    buildings_json = args.buildings_json
+    if not args.skip_buildings:
+        buildings_json = run_buildings(args)
+        completion_summary = complete_buildings_json_from_images(buildings_json, args.building_images)
+        print(f"Building JSON completion summary: {completion_summary}")
+    else:
+        print(f"Skipping building detection; using existing building JSON: {buildings_json}")
+        completion_summary = complete_buildings_json_from_images(buildings_json, args.building_images)
+        print(f"Building JSON completion summary: {completion_summary}")
 
     building_summary = create_clean_building_masks(
         buildings_json,
@@ -221,19 +374,31 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Automatic building/road/tree mask pipeline")
+    parser = argparse.ArgumentParser(
+        description="Fully automatic raw GeoTIFF or prepared Unity tile pipeline"
+    )
     parser.add_argument("--python", default=sys.executable, help="Python executable used for subprocess steps")
-    parser.add_argument("--rgb-tifs", type=Path, default=DATA_PIPELINE / "outputs" / "RGB_tifs")
-    parser.add_argument("--unity-output", type=Path, default=DATA_PIPELINE / "outputs" / "unity_output")
+    parser.add_argument("--input-mode", choices=("prepared", "raw"), default="prepared")
+    parser.add_argument(
+        "--work-dir",
+        type=Path,
+        default=None,
+        help="Raw mode workspace; RGB_tifs and unity_output are rebuilt inside it",
+    )
+    parser.add_argument("--raw-rgb-file", type=Path, default=None, help="Uncropped RGB GeoTIFF")
+    parser.add_argument("--dem-file", type=Path, default=None, help="Uncropped DEM GeoTIFF")
+    parser.add_argument("--tile-size", type=int, default=512, help="Raw RGB tile size in pixels")
+    parser.add_argument("--rgb-tifs", type=Path, default=None)
+    parser.add_argument("--unity-output", type=Path, default=None)
     parser.add_argument("--ndvi-file", type=Path, default=None, help="Optional source NDVI TIFF")
-    parser.add_argument("--building-images", type=Path, default=DATA_PIPELINE / "outputs" / "unity_output" / "tiles_rgb")
+    parser.add_argument("--building-images", type=Path, default=None)
 
     parser.add_argument("--road-masks", type=Path, default=None, help="Existing road mask folder when skipping roads")
     parser.add_argument("--tree-masks", type=Path, default=None, help="Existing tree mask folder when skipping trees")
-    parser.add_argument("--buildings-json", type=Path, default=DATA_PIPELINE / "outputs" / "unity_output" / "buildings.json")
-    parser.add_argument("--cleaned-buildings-json", type=Path, default=DATA_PIPELINE / "outputs" / "unity_output" / "buildings_cleaned.json")
-    parser.add_argument("--building-masks-out", type=Path, default=DATA_PIPELINE / "outputs" / "unity_output" / "tiles_buildings")
-    parser.add_argument("--unity-package-dir", type=Path, default=DATA_PIPELINE / "outputs" / "unity_ready" / "Terrain_Tiles")
+    parser.add_argument("--buildings-json", type=Path, default=None)
+    parser.add_argument("--cleaned-buildings-json", type=Path, default=None)
+    parser.add_argument("--building-masks-out", type=Path, default=None)
+    parser.add_argument("--unity-package-dir", type=Path, default=None)
 
     parser.add_argument("--tree-threshold", type=float, default=0.4)
     parser.add_argument("--tree-density", type=float, default=0.05)
@@ -249,7 +414,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ramp-building-model",
         type=Path,
-        default=SRC_DIR / "Building_Detection_Module" / "ramp_xunet.onnx",
+        default=DEFAULT_RAMP_BUILDING_MODEL,
         help="Path to the RAMP XUNet ONNX model when --building-detector ramp is selected",
     )
     parser.add_argument("--road-width-m", type=float, default=6.0)

@@ -45,7 +45,6 @@ public class NDVITreePlacerEditor : Editor
         
         EditorGUILayout.Space(5);
         
-        // Visibility toggle button
         GUI.backgroundColor = treesVisible ? new Color(0.8f, 0.8f, 0.4f) : new Color(0.5f, 0.5f, 0.5f);
         string buttonLabel = treesVisible ? "Hide Terrain Trees" : "Show Terrain Trees";
         if (GUILayout.Button(buttonLabel, GUILayout.Height(25)))
@@ -60,7 +59,6 @@ public class NDVITreePlacerEditor : Editor
         
         EditorGUILayout.Space(5);
         
-        // Help box
         EditorGUILayout.HelpBox(
             "1. Run generate_tree_masks.py to create tree data\n" +
             "2. Copy tiles_trees folder to Resources\n" +

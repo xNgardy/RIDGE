@@ -25,8 +25,6 @@ public class NDVITreePlacer : MonoBehaviour
     [SerializeField] private float densityMultiplier = 1f;
     [SerializeField] private float minScale = 0.8f;
     [SerializeField] private float maxScale = 1.2f;
-    [SerializeField] private float minHeight = 5f;  
-    [SerializeField] private float maxHeight = 15f; 
     
     [Header("Advanced Settings")]
     [SerializeField] private bool useMaskTextures = false; 
@@ -37,15 +35,8 @@ public class NDVITreePlacer : MonoBehaviour
     [Header("Debug")]
     [SerializeField] private bool showDebugInfo = true;
     
-    private TreePositionData treeData;
     private int totalTreesPlaced = 0;
     private int treeLayer;
-
-    [Serializable]
-    private class TreePositionData
-    {
-        public Dictionary<string, List<Vector2>> tilePositions = new Dictionary<string, List<Vector2>>();
-    }
     
     public void PlaceAllTrees()
     {
@@ -241,16 +232,13 @@ public class NDVITreePlacer : MonoBehaviour
                 
                 if (value >= maskThreshold)
                 {
-                    if (UnityEngine.Random.value <= densityMultiplier)
-                    {
-                        float normX = (x + UnityEngine.Random.Range(-maskSampleStep * 0.5f, maskSampleStep * 0.5f)) / width;
-                        float normY = (y + UnityEngine.Random.Range(-maskSampleStep * 0.5f, maskSampleStep * 0.5f)) / height;
-                        
-                        normX = Mathf.Clamp01(normX);
-                        normY = Mathf.Clamp01(normY);
-                        
-                        positions.Add(new Vector2(normX, normY));
-                    }
+                    float normX = (x + UnityEngine.Random.Range(-maskSampleStep * 0.5f, maskSampleStep * 0.5f)) / width;
+                    float normY = (y + UnityEngine.Random.Range(-maskSampleStep * 0.5f, maskSampleStep * 0.5f)) / height;
+                    
+                    normX = Mathf.Clamp01(normX);
+                    normY = Mathf.Clamp01(normY);
+                    
+                    positions.Add(new Vector2(normX, normY));
                 }
             }
         }

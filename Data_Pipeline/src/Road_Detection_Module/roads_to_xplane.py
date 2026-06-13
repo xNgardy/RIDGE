@@ -195,12 +195,14 @@ def collect_tile_info(tifs_dir, tile_divisor, only_tiles=None):
     tiles = []
     for fn in tif_files:
         m = TILE_RE.search(fn)
-        if not m:
-            continue
-
-        val1, val2 = int(m.group(1)), int(m.group(2))
-        unity_x = val2 // tile_divisor
-        unity_y = val1 // tile_divisor
+        if m:
+            val1, val2 = int(m.group(1)), int(m.group(2))
+            unity_x = val2 // tile_divisor
+            unity_y = val1 // tile_divisor
+        else:
+            # Tek parça (bölünmemiş) TIF: dosya adında tile_X_Y kalıbı yok.
+            # Atlamak yerine 0,0 grid index ile tek tile olarak işle.
+            unity_x = unity_y = 0
 
         if only_tiles and (unity_x, unity_y) not in only_tiles:
             continue
@@ -372,9 +374,9 @@ def build_degree_tiles(tiles, gdf, skip_empty=True):
                 if ls.length < 1e-9 or len(ls.coords) < 2:
                     continue
 
-                # Normalize (u,v) değil, direkt WGS84 koordinatlar
-                wgs_pts = [(wl + u * tile_w, wb + v * tile_h)
-                           for u, v in ls.coords]
+                # ls.coords zaten gerçek WGS84 lon/lat döner (intersection
+                # WGS84 tile_poly ile yapıldı). Yeniden ölçeklemeye GEREK YOK.
+                wgs_pts = [(lon, lat) for lon, lat in ls.coords]
 
                 # Hangi 1°×1° degree tile'a düştüğü
                 mid_lon = (wgs_pts[0][0] + wgs_pts[-1][0]) / 2

@@ -8,7 +8,10 @@ import O4_Vector_Map as VMAP
 import O4_Imagery_Utils as IMG
 import O4_Tile_Utils as TILE
 import O4_Overlay_Utils as OVL
-
+import Overlay.tree.tree_overlay_generator as TREE
+import Overlay.building.building_overlay_generator as BUILDING
+import Overlay.road.road_overlay_generator as ROAD
+import Overlay.build_overlay_dsf as CSTM_OVL
 
 cfg_vars = {
     # App
@@ -285,6 +288,174 @@ redo any prior step; Level 0 keeps every single file.",
         "default": "",
         "hint": "Root directory containing local data organized in lat/lon subdirectories. Each subdirectory should contain: dem.tif (DEM), rgb.tif (imagery), water.shp (vector data).",
     },
+    # Buildings
+    "model_name": {
+        "module": "BUILDING",
+        "type": str,
+        "default": "ramp_XUnet_256.onnx",
+        "hint": "Name of the ONNX model file. The file should be located in the building overlay generator's models directory.",
+    },
+    "confidence": {
+        "module": "BUILDING",
+        "type": float,
+        "default": 0.6,
+        "hint": "Minimum fill-ratio to keep a detection (0–1).",
+    },
+    "xplane_root": {
+        "module": "BUILDING",
+        "type": str,
+        "default": None,
+        "hint": "X-Plane 12 root directory - installs the package directly.",
+    },
+    "gsd": {
+        "module": "BUILDING",
+        "type": float,
+        "default": 0.5,
+        "hint": "Ground sampling distance in m/px.",
+    },
+    "exclude_autogen": {
+        "module": "BUILDING",
+        "type": bool,
+        "default": True,
+        "hint": "Suppress X-Plane autogen buildings in the covered tiles.",
+    },
+    "min_area_m2": {
+        "module": "BUILDING",
+        "type": float,
+        "default": 25.0,
+        "hint": "Minimum building footprint in m².",
+    },
+    # Trees
+    "threshold": {
+        "module": "TREE",
+        "type": float,
+        "default": 0.55,
+        "hint": "NDVI threshold for tree detection.",
+    },
+    "density": {
+        "module": "TREE",
+        "type": float,
+        "default": 0.05,
+        "hint": "Tree density.",
+    },
+    "min_ndvi": {
+        "module": "TREE",
+        "type": float,
+        "default": 0.4,
+        "hint": "Minimum NDVI for any vegetation.",
+    },
+    "invert": {
+        "module": "TREE",
+        "type": bool,
+        "default": False,
+        "hint": "Invert mask – use when trees appear in wrong places.",
+    },
+    "band": {
+        "module": "TREE",
+        "type": int,
+        "default": 1,
+        "hint": "Which band to use from the NDVI file.",
+    },
+    "low_is_tree": {
+        "module": "TREE",
+        "type": bool,
+        "default": True,
+        "hint": "Treat low NDVI values as trees (inverted NDVI interpretation).",
+    },
+    "seed": {
+        "module": "TREE",
+        "type": int,
+        "default": 42,
+        "hint": "Random seed.",
+    },
+    "forest": {
+        "module": "TREE",
+        "type": str,
+        "default": "lib/g8/mixed_tmp_sdry.for",
+        "hint": "X-Plane .for library path.",
+    },
+    "xplane_density": {
+        "module": "TREE",
+        "type": int,
+        "default": 255,
+        "hint": "Forest density parameter, 0–255.",
+    },
+    "min_area_px": {
+        "module": "TREE",
+        "type": float,
+        "default": 40,
+        "hint": "Skip mask islands smaller than this pixel area.",
+    },
+    "min_hole_area_px": {
+        "module": "TREE",
+        "type": float,
+        "default": 40,
+        "hint": "Skip holes smaller than this pixel area.",
+    },
+    "simplify_px": {
+        "module": "TREE",
+        "type": float,
+        "default": 2.0,
+        "hint": "Contour simplification tolerance in pixels.",
+    },
+    "open_radius_px": {
+        "module": "TREE",
+        "type": int,
+        "default": 0,
+        "hint": "Morphological opening radius to remove speckles.",
+    },
+    "close_radius_px": {
+        "module": "TREE",
+        "type": int,
+        "default": 1,
+        "hint": "Morphological closing radius to bridge tiny gaps.",
+    },
+    "no_exclude_default_forests": {
+        "module": "TREE",
+        "type": bool,
+        "default": False,
+        "hint": "When set, skips emitting sim/exclude_for for the whole DSF tile.",
+    },
+    "exclude_objects": {
+        "module": "TREE",
+        "type": bool,
+        "default": True,
+        "hint": "Also emit sim/exclude_obj for the whole DSF tile. Can remove object-based trees from lower-priority scenery, but also removes other lower-priority objects such as buildings.",
+    },
+    # Roads
+    "no_exclude": {
+        "module": "ROAD",
+        "type": "bool",
+        "default": False,
+        "required": False,
+        "hint": "Do not remove default roads (add an exclusion zone)."
+    },
+    "skip_empty": {
+        "module": "ROAD",
+        "type": "bool",
+        "default": True,
+        "required": False,
+        "hint": "Skip tiles without roads (default: True)."
+    },
+    # Custom Overlay Settings
+    "separate_overlays": {
+        "module": "CSTM_OVL",
+        "type": bool,
+        "default": False,
+        "hint": "When set, separate .dsf files are created for each overlay type (roads, trees and buildings) from their respective DSF text files instead of a single combined .dsf file. This allows for more flexibility in managing overlays.",
+    },
+    "generated_overlays": {
+        "module": "CSTM_OVL",
+        "type": list,
+        "default": ["Roads", "Trees", "Buildings"],
+        "hint": "List of overlay DSF text files to generate. Possible values include 'Roads', 'Trees' and 'Buildings'.",
+    },
+    # Terrain Generation Settings
+    "generate_terrain": {
+        "type": bool,
+        "default": True,
+        "hint": "When set, the terrain mesh is generated for the tile. If unset, only the DSF and textures are generated, using a flat mesh at sea level. This can be useful for testing purposes or if you want to use a custom mesh.",
+    },
 }
 
 list_app_vars = [
@@ -296,8 +467,6 @@ list_app_vars = [
     "custom_scenery_dir",
     "custom_overlay_src",
 ]
-gui_app_vars_short = list_app_vars[:-2]
-gui_app_vars_long = list_app_vars[-2:]
 
 list_vector_vars = [
     "apt_smoothing_pix",

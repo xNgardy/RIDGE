@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Ortho4XP - Local data only mode (CLI only, no GUI)
+RIDGE4XP - Local data only mode (CLI only, no GUI)
 Simple command-line interface for generating X-Plane terrain from local data.
 """
 import sys
 import os
 import traceback
 
-Ortho4XP_dir = '..' if getattr(sys, 'frozen', False) else '.'
-sys.path.append(os.path.join(Ortho4XP_dir, 'src'))
+RIDGE4XP_dir = '..' if getattr(sys, 'frozen', False) else '.'
+sys.path.append(os.path.join(RIDGE4XP_dir, 'src'))
 any_missing = False
 
 import O4_File_Names as FNAMES
@@ -18,27 +18,23 @@ import O4_Vector_Map as VMAP
 import O4_Mesh_Utils as MESH
 import O4_Mask_Utils as MASK
 import O4_Tile_Utils as TILE
-
+import Overlay.tree.tree_overlay_generator as TREE
+import Overlay.building.building_overlay_generator as BUILDING
+import Overlay.road.road_overlay_generator as ROAD
+import Overlay.build_overlay_dsf as CSTM_OVL
 def main():
     """Main entry point for CLI-only operation."""
     if not os.path.isdir(FNAMES.Utils_dir):
         print("ERROR: Missing", FNAMES.Utils_dir, "directory. Check your install.")
         sys.exit(1)
 
-    # # Ensure required directories exist
-    # for directory in (FNAMES.Mask_dir, FNAMES.OSM_dir, FNAMES.Elevation_dir,
-    #                   FNAMES.Geotiff_dir, FNAMES.Tile_dir, FNAMES.Tmp_dir):
-    #     if not os.path.isdir(directory):
-    #         any_missing = True
-    #         print(f"MISSING: {directory}")
-
-    # if any_missing:
-    #     print("ERROR: One or more required directories are missing. Please create them and add the necessary data.")
-    #     sys.exit(1)
+    if not os.path.isdir(FNAMES.Data_dir):
+        print("ERROR: Missing", FNAMES.Data_dir, "directory. Check your install.")
+        sys.exit(1)
 
     # Parse command line arguments
     if len(sys.argv) < 3:
-        print("Usage: python Ortho4XP.py <lat> <lon>")
+        print("Usage: python RIDGE4XP.py <lat> <lon>")
         print("  Uses existing .cfg file in tile directory")
         sys.exit(1)
 
@@ -71,14 +67,27 @@ def main():
     # Run pipeline
     try:
         print(f"Processing tile {lat}/{lon}...")
-        print("  Building vector map...")
-        VMAP.build_poly_file(tile)
-        print("  Building mesh...")
-        MESH.build_mesh(tile)
-        print("  Building masks...")
-        MASK.build_masks(tile)
-        print("  Building tile...")
-        TILE.build_tile(tile)
+        if "Buildings" in CSTM_OVL.generated_overlays:
+            print(f"  Generating building overlay...")
+            BUILDING.generate_building_overlay(tile)
+        if "Trees" in CSTM_OVL.generated_overlays:
+            print(f"  Generating tree overlay...")
+            TREE.generate_tree_overlay(tile)
+        if "Roads" in CSTM_OVL.generated_overlays:
+            print(f"  Generating road overlay...")
+            ROAD.generate_road_overlay(tile)
+        if CFG.generate_terrain:
+            print("  Building vector map...")
+            VMAP.build_poly_file(tile)
+            print("  Building mesh...")
+            MESH.build_mesh(tile)
+            print("  Building masks...")
+            MASK.build_masks(tile)
+            print("  Building tile...")
+            TILE.build_tile(tile)
+        if CSTM_OVL.generated_overlays:
+            print(f"  Building overlay DSF(s)...")
+            CSTM_OVL.build_overlay_dsfs(tile)
         print(f"✓ Tile {lat}/{lon} complete!")
         return 0
     except Exception as e:
@@ -88,5 +97,3 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
- 
-        

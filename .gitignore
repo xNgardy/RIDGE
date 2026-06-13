@@ -22,9 +22,9 @@ Thumbs.db
 **/.ipynb_checkpoints/
 
 # Virtual environments
-.venv/
-venv/
-env/
+*.venv/
+*venv/
+*env/
 Data_Pipeline/.venv/
 Data_Pipeline/venv/
 Data_Pipeline/env/
@@ -98,6 +98,9 @@ Unity_Engine/sysinfo.txt
 
 # Asset Store tools
 Unity_Engine/Assets/AssetStoreTools*
+
+# X-Plane Config File
+*RIDGE4XP.cfg
 
 # =========================
 # Miscellaneous

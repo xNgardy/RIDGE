@@ -6,10 +6,7 @@ g2xpl_16_prefix = ""
 g2xpl_16_suffix = ""
 
 RIDGE4XP_dir = ".." if getattr(sys, "frozen", False) else "."
-Preview_dir = os.path.join(RIDGE4XP_dir, "Previews")
-Provider_dir = os.path.join(RIDGE4XP_dir, "Providers")
 Extent_dir = os.path.join(RIDGE4XP_dir, "Extents")
-Filter_dir = os.path.join(RIDGE4XP_dir, "Filters")
 OSM_dir = os.path.join(RIDGE4XP_dir, "OSM_data")                # OK
 Mask_dir = os.path.join(RIDGE4XP_dir, "Masks")                  # OK
 Imagery_dir = os.path.join(RIDGE4XP_dir, "Orthophotos")
@@ -20,6 +17,8 @@ Utils_dir = os.path.join(RIDGE4XP_dir, "Utils")                 # OK
 Tile_dir = os.path.join(RIDGE4XP_dir, "Tiles")                  # OK
 Tmp_dir = os.path.join(RIDGE4XP_dir, "tmp")                     # OK
 Overlay_dir = os.path.join(RIDGE4XP_dir, "yRIDGE4XP_Overlays")
+# RIDGE4XP
+Data_dir = os.path.join(RIDGE4XP_dir, "data")
 ##############################################################################
 def short_latlon(lat, lon):
     strlat = "{:+.0f}".format(lat).zfill(3)
@@ -220,16 +219,6 @@ def mtl_file(til_x_left, til_y_top, zoomlevel):
         + "_"
         + str(zoomlevel)
         + ".mtl",
-    )
-
-
-##############################################################################
-
-##############################################################################
-def preview(lat, lon, zoomlevel):
-    return os.path.join(
-        Preview_dir,
-        short_latlon(lat, lon) + "_" + str(zoomlevel) + ".jpg",
     )
 
 

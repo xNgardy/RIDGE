@@ -147,4 +147,3 @@ If you passed `--xplane` in Step 2, installation is already done. Skip to [launc
 ## Launch
 
 Start X-Plane 12 and search for your package name (e.g. `My_City_Buildings`) in the location menu.
-

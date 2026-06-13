@@ -55,119 +55,6 @@ extents_dict = {"global": {"dir": None, "code": "global"}}
 color_filters_dict = {"none": []}
 
 ################################################################################
-def initialize_extents_dict():
-    for dir_name in os.listdir(FNAMES.Extent_dir):
-        if not os.path.isdir(os.path.join(FNAMES.Extent_dir, dir_name)):
-            continue
-        for file_name in os.listdir(os.path.join(FNAMES.Extent_dir, dir_name)):
-            if "." not in file_name or file_name.split(".")[-1] != "ext":
-                continue
-            extent_code = file_name.split(".")[0]
-            extent = {}
-            f = open(
-                os.path.join(FNAMES.Extent_dir, dir_name, file_name),
-                "r",
-                encoding="utf-8",
-            )
-            valid_extent = True
-            for line in f.readlines():
-                line = line[:-1]
-                if "#" in line:
-                    line = line.split("#")[0]
-                if "=" not in line:
-                    continue
-                try:
-                    key = line.split("=")[0]
-                    value = line[len(key) + 1 :]
-                    extent[key] = value
-                except:
-                    print("Error for extent", extent_code, "in line", line)
-                    continue
-                # structuring data
-                if key == "epsg_code":
-                    try:
-                        GEO.record_epsg(int(value))
-                    except:
-                        # HACK for Slovenia
-                        if int(value) == 102060:
-                            GEO.record_epsg(3912)
-                        else:
-                            print("Error in epsg code for extent", extent_code)
-                            valid_extent = False
-                elif key == "mask_bounds":
-                    try:
-                        extent[key] = [float(x) for x in value.split(",")]
-                    except:
-                        print(
-                            "Error in reading mask bounds for extent",
-                            extent_code,
-                        )
-                        valid_extent = False
-                elif key == "buffer_width":
-                    try:
-                        extent[key] = float(value)
-                    except:
-                        print(
-                            "Error in reading mask buffer width for extent",
-                            extent_code,
-                        )
-                        valid_extent = False
-                elif key == "mask_width":
-                    try:
-                        extent[key] = float(value)
-                    except:
-                        print(
-                            "Error in reading mask width for extent",
-                            extent_code,
-                        )
-                        valid_extent = False
-            if valid_extent:
-                extent["code"] = extent_code
-                extent["dir"] = dir_name
-                extents_dict[extent_code] = extent
-            else:
-                print("Error in reading extent definition file for", file_name)
-                pass
-            f.close()
-
-
-################################################################################
-
-################################################################################
-def initialize_color_filters_dict():
-    for file_name in os.listdir(FNAMES.Filter_dir):
-        if "." not in file_name or file_name.split(".")[-1] != "flt":
-            continue
-        color_code = file_name.split(".")[0]
-        f = open(os.path.join(FNAMES.Filter_dir, file_name), "r")
-        valid_color_filters = True
-        color_filters = []
-        for line in f.readlines():
-            line = line[:-1]
-            if "#" in line:
-                line = line.split("#")[0]
-            if not line:
-                continue
-            try:
-                items = line.split()
-                color_filters.append([items[0]] + [float(x) for x in items[1:]])
-            except:
-                valid_color_filters = False
-        if valid_color_filters:
-            color_filters_dict[color_code] = color_filters
-        else:
-            print(
-                "Could not understand color filter ",
-                color_code,
-                ", skipping it.",
-            )
-            pass
-        f.close()
-
-
-################################################################################
-
-################################################################################
 # DELETED: initialize_providers_dict():
 
 
@@ -1166,12 +1053,6 @@ def build_jpeg_ortho(
 
 ################################################################################
 
-################################################################################
-# DELETED: create_tile_preview(lat, lon, zoomlevel, provider_code):
-
-
-
-################################################################################
 
 ################################################################################
 #

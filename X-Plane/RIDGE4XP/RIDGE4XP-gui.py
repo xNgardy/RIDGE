@@ -218,7 +218,7 @@ class Ridge4XPGui(tk.Tk):
             return
 
         script_path = str(THIS_DIR / "RIDGE4XP.py")
-        cmd = [sys.executable, script_path, lat, lon]
+        cmd = [sys.executable, "-u", script_path, lat, lon]
         self._append_log(f"\nStarting RIDGE4XP...\n> {' '.join(cmd)}\n\n")
         
         self.run_btn.configure(state="disabled")
@@ -230,6 +230,7 @@ class Ridge4XPGui(tk.Tk):
             # 1. Force the subprocess to use UTF-8 by overriding its environment variable
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONUNBUFFERED"] = "1"
 
             self.process = subprocess.Popen(
                 command,

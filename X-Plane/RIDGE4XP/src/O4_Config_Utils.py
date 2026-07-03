@@ -8,10 +8,10 @@ import O4_Vector_Map as VMAP
 import O4_Imagery_Utils as IMG
 import O4_Tile_Utils as TILE
 import O4_Overlay_Utils as OVL
+import Overlay.build_overlay_dsf as CSTM_OVL
 import Overlay.tree.tree_overlay_generator as TREE
 import Overlay.building.building_overlay_generator as BUILDING
 import Overlay.road.road_overlay_generator as ROAD
-import Overlay.build_overlay_dsf as CSTM_OVL
 
 cfg_vars = {
     # App
@@ -288,6 +288,25 @@ redo any prior step; Level 0 keeps every single file.",
         "default": "",
         "hint": "Root directory containing local data organized in lat/lon subdirectories. Each subdirectory should contain: dem.tif (DEM), rgb.tif (imagery), water.shp (vector data).",
     },
+    # Custom Overlay Settings
+    "separate_overlays": {
+        "module": "CSTM_OVL",
+        "type": bool,
+        "default": False,
+        "hint": "When set, separate .dsf files are created for each overlay type (roads, trees and buildings) from their respective DSF text files instead of a single combined .dsf file. This allows for more flexibility in managing overlays.",
+    },
+    "generated_overlays": {
+        "module": "CSTM_OVL",
+        "type": list,
+        "default": ["Roads", "Trees", "Buildings"],
+        "hint": "List of overlay DSF text files to generate. Possible values include 'Roads', 'Trees' and 'Buildings'.",
+    },
+    "clean_overlays": {
+        "module": "CSTM_OVL",
+        "type": bool,
+        "default": False,
+        "hint": "When set, clean up overlapping sections between generated overlays through a linear pipeline. (Roads -> Tress -> Buildings). This is useful for ensuring that overlays do not interfere with each other and maintain a clean appearance in the final scenery. Bypasses generated_overlays if set to True.",
+    },
     # Buildings
     "model_name": {
         "module": "BUILDING",
@@ -437,19 +456,6 @@ redo any prior step; Level 0 keeps every single file.",
         "required": False,
         "hint": "Skip tiles without roads (default: True)."
     },
-    # Custom Overlay Settings
-    "separate_overlays": {
-        "module": "CSTM_OVL",
-        "type": bool,
-        "default": False,
-        "hint": "When set, separate .dsf files are created for each overlay type (roads, trees and buildings) from their respective DSF text files instead of a single combined .dsf file. This allows for more flexibility in managing overlays.",
-    },
-    "generated_overlays": {
-        "module": "CSTM_OVL",
-        "type": list,
-        "default": ["Roads", "Trees", "Buildings"],
-        "hint": "List of overlay DSF text files to generate. Possible values include 'Roads', 'Trees' and 'Buildings'.",
-    },
     # Terrain Generation Settings
     "generate_terrain": {
         "type": bool,
@@ -575,7 +581,7 @@ try:
             pass
     f.close()
 except:
-    print("No global config file found. Reverting to default values.")
+    UI.lvprint(1, "No global config file found. Reverting to default values.")
 
 
 ################################################################################

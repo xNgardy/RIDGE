@@ -11,6 +11,7 @@ Geo dependencies (tried in order):
     1. rasterio  (pip install rasterio)
     2. GDAL/osgeo (pip install gdal)
 """
+import O4_UI_Utils as UI
 
 import cv2
 import numpy as np
@@ -201,7 +202,7 @@ class BuildingDetector:
         )
         self.input_name  = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
-        print(f"Model loaded: {self.model_path}")
+        UI.lvprint(1, f"Model loaded: {self.model_path}")
 
     # ── Preprocessing ─────────────────────────────────────────────────────────
 
@@ -342,17 +343,17 @@ class BuildingDetector:
 
     def process_image(self, image_path: Path, confidence: float = 0.0):
         """Full pipeline for one GeoTIFF: read → infer → mask → contours → geo JSON."""
-        print(f"Processing: {image_path.name}")
+        UI.lvprint(1, f"Processing: {image_path.name}")
 
         try:
             geo = GeoTiffReader(str(image_path))
         except Exception as e:
-            print(f"  Could not read GeoTIFF: {e}")
+            UI.lvprint(1, f"  Could not read GeoTIFF: {e}")
             return
 
         image = geo.image_bgr
         if image is None:
-            print(f"  Empty image data, skipping.")
+            UI.lvprint(1, f"  Empty image data, skipping.")
             return
 
         building_prob = self.run_inference(image)
@@ -363,7 +364,7 @@ class BuildingDetector:
         )
 
         if not rectangles:
-            print(f"  No buildings detected.")
+            UI.lvprint(1, f"  No buildings detected.")
             return
 
         # Compute image-level bounding box in WGS84 for context
@@ -382,7 +383,7 @@ class BuildingDetector:
         }
 
         self.json_list.append(json_data)
-        print(f"  {len(rectangles)} building(s) detected.")
+        UI.lvprint(1, f"  {len(rectangles)} building(s) detected.")
 
     # ── Batch processing ──────────────────────────────────────────────────────
 
@@ -397,16 +398,16 @@ class BuildingDetector:
             if f.suffix.lower() in {'.tif', '.tiff'}
         )
         if not image_paths:
-            print(f"No TIFF files found in {image_folder}")
+            UI.lvprint(1, f"No TIFF files found in {image_folder}")
             return
 
-        print(f"Processing {len(image_paths)} GeoTIFF(s)...")
+        UI.lvprint(1, f"Processing {len(image_paths)} GeoTIFF(s)...")
         for img_path in image_paths:
             self.process_image(img_path, confidence=confidence)
 
         with open(output_path, 'w') as f:
             json.dump({"tileBuildingsList": self.json_list}, f, indent=2)
-        print(f"\nDone. JSON saved to {output_path}")
+        UI.lvprint(1, f"\nDone. JSON saved to {output_path}")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────

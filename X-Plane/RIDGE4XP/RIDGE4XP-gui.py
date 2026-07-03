@@ -43,7 +43,7 @@ class Ridge4XPGui(tk.Tk):
         
         self._build_ui()
         self._update_available_vars()
-        self.after(100, self._poll_log_queue)
+        self.after(50, self._poll_log_queue)
 
     def _build_ui(self):
         main_frame = ttk.Frame(self, padding=12)
@@ -227,7 +227,6 @@ class Ridge4XPGui(tk.Tk):
 
     def _worker(self, command):
         try:
-            # 1. Force the subprocess to use UTF-8 by overriding its environment variable
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUNBUFFERED"] = "1"
@@ -238,10 +237,10 @@ class Ridge4XPGui(tk.Tk):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                encoding="utf-8",    # 2. Tell the GUI to read the pipe as UTF-8
-                errors="replace",    # 3. Safely replace any stubborn characters
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
-                env=env              # 4. Pass the modified environment variables
+                env=env
             )
             assert self.process.stdout is not None
             for line in self.process.stdout:
@@ -260,18 +259,44 @@ class Ridge4XPGui(tk.Tk):
             self._append_log("\nStop requested.\n")
 
     def _poll_log_queue(self):
-        while True:
+        lines_to_add = []
+        run_done = False
+        
+        # Pull up to 150 lines from the queue instantly without breaking for UI updates
+        for _ in range(150):
             try:
                 line = self.log_queue.get_nowait()
+                if line == "__RUN_DONE__":
+                    run_done = True
+                else:
+                    lines_to_add.append(line)
             except queue.Empty:
                 break
-            if line == "__RUN_DONE__":
-                self.run_btn.configure(state="normal")
-            else:
-                self._append_log(line)
-        self.after(100, self._poll_log_queue)
+        
+        # Batch modify the Text widget exactly ONCE per loop iteration
+        if lines_to_add:
+            joined_text = "".join(lines_to_add)
+            self.log_text.insert("end", joined_text)
+            
+            # Prune old history only once per batch instead of per-line
+            try:
+                total_lines = int(self.log_text.index("end-1c").split(".")[0])
+                if total_lines > 2500:
+                    self.log_text.delete("1.0", "500.0")
+            except Exception:
+                pass
+            
+            # Force Tkinter to recalculate geometry and scroll exactly ONCE
+            self.log_text.see("end")
+            
+        if run_done:
+            self.run_btn.configure(state="normal")
+            
+        # Poll slightly quicker (50ms) to keep stream snappy but smooth
+        self.after(50, self._poll_log_queue)
 
     def _append_log(self, text):
+        # Fallback method used for direct GUI notices
         self.log_text.insert("end", text)
         self.log_text.see("end")
 

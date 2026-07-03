@@ -12,6 +12,8 @@ Example:
 import sys
 import json
 from pathlib import Path
+import O4_UI_Utils as UI
+
 import numpy as np
 import rasterio
 from rasterio.warp import reproject, Resampling
@@ -31,15 +33,15 @@ def crop_ndvi(ndvi_path: Path, rgb_tif_path: Path, unity_output: Path) -> Path:
 
     # Validate inputs
     if not ndvi_path.exists():
-        print(f"Error: NDVI file not found at {ndvi_path}")
+        UI.lvprint(1, f"Error: NDVI file not found at {ndvi_path}")
         raise SystemExit(1)
         
     if not rgb_tif_path.exists():
-        print(f"Error: RGB GeoTIFF not found at {rgb_tif_path}")
+        UI.lvprint(1, f"Error: RGB GeoTIFF not found at {rgb_tif_path}")
         raise SystemExit(1)
 
-    print(f"Opening NDVI file: {ndvi_path}")
-    print(f"Aligning to RGB GeoTIFF: {rgb_tif_path}")
+    UI.lvprint(1, f"Opening NDVI file: {ndvi_path}")
+    UI.lvprint(1, f"Aligning to RGB GeoTIFF: {rgb_tif_path}")
 
     # Read reference tile properties
     fallback_crs = rasterio.crs.CRS.from_epsg(4326) # Setup WGS84 fallback
@@ -50,9 +52,9 @@ def crop_ndvi(ndvi_path: Path, rgb_tif_path: Path, unity_output: Path) -> Path:
         ref_width = ref_src.width
         ref_height = ref_src.height
         
-        print("\n--- DEBUG INFO ---")
-        print(f"RGB CRS:     {ref_crs}")
-        print(f"RGB Bounds:  {ref_src.bounds}")
+        UI.lvprint(1, "\n--- DEBUG INFO ---")
+        UI.lvprint(1, f"RGB CRS:     {ref_crs}")
+        UI.lvprint(1, f"RGB Bounds:  {ref_src.bounds}")
     
     # Create NDVI array matching reference dimensions
     ndvi_cropped = np.zeros((ref_height, ref_width), dtype=np.float32)
@@ -61,9 +63,9 @@ def crop_ndvi(ndvi_path: Path, rgb_tif_path: Path, unity_output: Path) -> Path:
     with rasterio.open(str(ndvi_path)) as ndvi_src:
         src_crs = ndvi_src.crs or fallback_crs
         
-        print(f"NDVI CRS:    {src_crs}")
-        print(f"NDVI Bounds: {ndvi_src.bounds}")
-        print("------------------\n")
+        UI.lvprint(1, f"NDVI CRS:    {src_crs}")
+        UI.lvprint(1, f"NDVI Bounds: {ndvi_src.bounds}")
+        UI.lvprint(1, f"{'-' * 20}\n")
 
         reproject(
             source=rasterio.band(ndvi_src, 1),
@@ -107,17 +109,17 @@ def crop_ndvi(ndvi_path: Path, rgb_tif_path: Path, unity_output: Path) -> Path:
     im = Image.fromarray(ndvi_norm)
     im.save(str(ndvi_png_path))
     
-    print(f"\n{'='*50}")
-    print(f"✓ NDVI image cropped successfully!")
-    print(f"  Dimensions: {ref_width}x{ref_height}")
-    print(f"  Output: {ndvi_out_path}")
-    print(f"{'='*50}")
+    UI.lvprint(1, f"\n{'='*50}")
+    UI.lvprint(1, f"✓ NDVI image cropped successfully!")
+    UI.lvprint(1, f"  Dimensions: {ref_width}x{ref_height}")
+    UI.lvprint(1, f"  Output: {ndvi_out_path}")
+    UI.lvprint(1, f"{'='*50}")
 
     return ndvi_out_path
 
 def main():
     if len(sys.argv) < 4:
-        print("Usage: python crop_and_tile_ndvi.py <ndvi_file> <rgb_geotiff> <output_folder>")
+        UI.lvprint(1, "Usage: python crop_and_tile_ndvi.py <ndvi_file> <rgb_geotiff> <output_folder>")
         raise SystemExit(1)
 
     ndvi_path = Path(sys.argv[1])

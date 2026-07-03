@@ -15,6 +15,8 @@ import sys
 import json
 import argparse
 from pathlib import Path
+import O4_UI_Utils as UI
+
 import numpy as np
 from PIL import Image
 
@@ -34,21 +36,21 @@ def generate_masks(unity_output: Path, threshold=0.55, density=0.05, min_ndvi=0.
     ensure_dir(tiles_trees_out)
     
     if not tiles_ndvi_dir.exists():
-        print(f"Error: tiles_ndvi folder not found at {tiles_ndvi_dir}")
+        UI.lvprint(1, f"Error: tiles_ndvi folder not found at {tiles_ndvi_dir}")
         raise SystemExit(1)
     
     ndvi_tifs = sorted(tiles_ndvi_dir.glob("*.tif"))
     
     if not ndvi_tifs:
-        print(f"Error: No NDVI tiles found in {tiles_ndvi_dir}")
+        UI.lvprint(1, f"Error: No NDVI tiles found in {tiles_ndvi_dir}")
         raise SystemExit(1)
     
-    print(f"Found {len(ndvi_tifs)} NDVI tiles")
-    print(f"Settings:")
-    print(f"  Tree threshold: {threshold}")
-    print(f"  Invert mask: {invert}")
-    print(f"  Low is tree: {low_is_tree}")
-    print()
+    UI.lvprint(1, f"Found {len(ndvi_tifs)} NDVI tiles")
+    UI.lvprint(1, f"Settings:")
+    UI.lvprint(1, f"  Tree threshold: {threshold}")
+    UI.lvprint(1, f"  Invert mask: {invert}")
+    UI.lvprint(1, f"  Low is tree: {low_is_tree}")
+    UI.lvprint(1, "")
     
     output_mask_paths = []
 
@@ -88,13 +90,13 @@ def generate_masks(unity_output: Path, threshold=0.55, density=0.05, min_ndvi=0.
         mask_img.save(str(mask_path))
         output_mask_paths.append(mask_path)
         
-        print(f"  ✓ {tile_name}: ({100*tree_pixels/total_pixels:.1f}% tree area)")
+        UI.lvprint(1, f"  ✓ {tile_name}: ({100*tree_pixels/total_pixels:.1f}% tree area)")
     
-    print()
-    print("=" * 50)
-    print(f"✓ Tree masks generated!")
-    print(f"  Output: {tiles_trees_out}")
-    print("=" * 50)
+    UI.lvprint(1, "")
+    UI.lvprint(1, "=" * 50)
+    UI.lvprint(1, f"✓ Tree masks generated!")
+    UI.lvprint(1, f"  Output: {tiles_trees_out}")
+    UI.lvprint(1, f"=" * 50)
 
     # Return the first mask generated (usually there's only one in this context)
     return output_mask_paths[0] if output_mask_paths else None

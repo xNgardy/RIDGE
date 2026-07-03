@@ -17,18 +17,163 @@ Example:
 import argparse
 import math
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import warnings
+import O4_UI_Utils as UI
 
 import cv2
 import numpy as np
+import geopandas as gpd
 import rasterio
 from rasterio.errors import NotGeoreferencedWarning
+from shapely.geometry import Polygon as ShapelyPolygon, MultiPolygon
+from shapely.strtree import STRtree
+
 
 @dataclass
 class Polygon:
     tile_name: str
     windings: list[list[tuple[float, float]]]
+
+# ═══════════════════════════════════════════════════════════════
+# Vector Clipping & Translation Layer (Adapter)
+# ═══════════════════════════════════════════════════════════════
+
+def shapely_to_windings(shapely_poly: ShapelyPolygon) -> list[list[tuple[float, float]]]:
+    """Translates a Shapely Polygon back into custom point-based windings loops."""
+    exterior = list(shapely_poly.exterior.coords)
+    interiors = [list(interior.coords) for interior in shapely_poly.interiors]
+    return [exterior] + interiors
+
+
+def clean_tree_polygons(custom_trees: list[Polygon], buffered_roads: list) -> list[Polygon]:
+    """
+    Subtracts 2D road footprints from point-based custom tree polygons.
+    
+    🔑 FIX: Merge all road buffers first to avoid GeometryCollection issues
+    """
+    from shapely.ops import unary_union
+    
+    if not buffered_roads:
+        return custom_trees
+    
+    # Convert to list and merge ALL road buffers into one unified geometry
+    road_geoms = list(buffered_roads) if not isinstance(buffered_roads, list) else buffered_roads
+    
+    if not road_geoms:
+        return custom_trees
+    
+    # 🔑 CRITICAL: Merge all 686 individual road buffers into 1
+    # This prevents GeometryCollection errors from sequential operations
+    print(f"Merging {len(road_geoms)} road buffers into one unified geometry...")
+    merged_roads = unary_union(road_geoms)
+    print(f"Merged road geometry type: {type(merged_roads)}")
+    
+    # Check road coverage
+    print(f"\nDEBUG: Road buffer coverage")
+    print(f"  Merged roads area: {merged_roads.area:.2e} sq degrees")
+    print(f"  Merged roads bounds: {merged_roads.bounds}")
+
+    # Sample a tree to see if it's actually being subtracted
+    sample_tree = custom_trees[7]  # Tree 7 was MODIFIED
+    exterior = sample_tree.windings[0]
+    interiors = sample_tree.windings[1:] if len(sample_tree.windings) > 1 else None
+    tree_shapely = ShapelyPolygon(shell=exterior, holes=interiors)
+
+    print(f"\n  Sample tree (Tree 7):")
+    print(f"    Before subtraction area: {tree_shapely.area:.2e}")
+    print(f"    Tree bounds: {tree_shapely.bounds}")
+
+    result = tree_shapely.difference(merged_roads)
+    print(f"    After subtraction area: {result.area:.2e}")
+    print(f"    Area removed: {(1 - result.area/tree_shapely.area)*100:.1f}%")
+    print(f"    Result type: {type(result)}")
+
+    cleaned_tree_polygons = []
+    
+    for tree in custom_trees:
+        if not tree.windings:
+            continue
+            
+        exterior = tree.windings[0]
+        interiors = tree.windings[1:] if len(tree.windings) > 1 else None
+        tree_shapely = ShapelyPolygon(shell=exterior, holes=interiors)
+        
+        # Single unified subtraction (instead of 686 sequential operations)
+        if merged_roads and not merged_roads.is_empty:
+            geometry_cursor = tree_shapely.difference(merged_roads)
+        else:
+            geometry_cursor = tree_shapely
+        
+        if geometry_cursor.is_empty:
+            continue
+            
+        if isinstance(geometry_cursor, ShapelyPolygon):
+            cleaned_tree_polygons.append(
+                Polygon(tile_name=tree.tile_name, windings=shapely_to_windings(geometry_cursor))
+            )
+        elif isinstance(geometry_cursor, MultiPolygon):
+            for part in geometry_cursor.geoms:
+                cleaned_tree_polygons.append(
+                    Polygon(tile_name=tree.tile_name, windings=shapely_to_windings(part))
+                )
+        elif hasattr(geometry_cursor, 'geoms'):  # GeometryCollection
+            # Handle mixed geometry types recursively
+            for part in geometry_cursor.geoms:
+                if isinstance(part, ShapelyPolygon):
+                    cleaned_tree_polygons.append(
+                        Polygon(tile_name=tree.tile_name, windings=shapely_to_windings(part))
+                    )
+                elif isinstance(part, MultiPolygon):
+                    for subpart in part.geoms:
+                        if isinstance(subpart, ShapelyPolygon):
+                            cleaned_tree_polygons.append(
+                                Polygon(tile_name=tree.tile_name, windings=shapely_to_windings(subpart))
+                            )
+                
+    return cleaned_tree_polygons
+
+
+def write_trees_to_gpkg(custom_trees: list[Polygon], gpkg_path: Path):
+    """Translates your custom point-list tree structures into a standard GeoPackage file."""        
+    if not custom_trees:
+        UI.lvprint(1, "No tree polygons found to save to GPKG.")
+        return
+        
+    geometries = []
+    tile_names = []
+    
+    for tree in custom_trees:
+        if not tree.windings:
+            continue
+        # Extract outer hull and any internal holes/clearings
+        exterior = tree.windings[0]
+        interiors = tree.windings[1:] if len(tree.windings) > 1 else None
+        
+        try:
+            shapely_poly = ShapelyPolygon(shell=exterior, holes=interiors)
+            geometries.append(shapely_poly)
+            tile_names.append(tree.tile_name)
+        except Exception as e:
+            # Skip invalid loops gracefully
+            continue
+            
+    # Compile dataframe into geographic coordinate system (WGS84)
+    gdf = gpd.GeoDataFrame(
+        {"tile_name": tile_names},
+        geometry=geometries,
+        crs="EPSG:4326"
+    )
+    
+    gpkg_path.parent.mkdir(parents=True, exist_ok=True)
+    gdf.to_file(gpkg_path, driver="GPKG")
+    UI.lvprint(1, f"  Successfully saved {len(gdf)} trees to spatial vector file: {gpkg_path}")
+
+
+# ═══════════════════════════════════════════════════════════════
+# Baseline Core Code Logic
+# ═══════════════════════════════════════════════════════════════
 
 
 def read_geotiff_transform(tif_path: Path):
@@ -117,9 +262,11 @@ def extract_polygons(
     tile_name = mask_path.stem.replace("_mask", "")
     transform = read_geotiff_transform(ref_tif_path)
 
-    with rasterio.open(mask_path) as src:
-        # Read the first band (index 1 in rasterio)
-        mask = src.read(1) 
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=NotGeoreferencedWarning)
+        with rasterio.open(mask_path) as src:
+            mask = src.read(1)
+
 
     mask = (mask > 0).astype(np.uint8) * 255
     mask = apply_morphology(mask, open_radius_px, close_radius_px)
@@ -250,6 +397,7 @@ def export_forest_masks(
     mask_file: Path,
     rgb_tif: Path,
     output_file: Path,
+    polygon_dir: Path = None,
     forest: str = "lib/g8/mixed_tmp_sdry.for",
     density: int = 255,
     min_area_px: float = 40.0,
@@ -260,6 +408,8 @@ def export_forest_masks(
     exclude_default_forests: bool = True,
     exclude_objects: bool = False,
 ):
+    from ..build_overlay_dsf import clean_overlays
+    
     if density < 0 or density > 255:
         raise ValueError("Error: density must be between 0 and 255.")
 
@@ -271,7 +421,7 @@ def export_forest_masks(
     grouped: dict[tuple[int, int], list[Polygon]] = {}
     total_polygons = 0
 
-    print(f"Processing mask file: {mask_file.name}")
+    UI.lvprint(1, f"Processing mask file: {mask_file.name}")
     
     polygons = extract_polygons(
         mask_path=mask_file,
@@ -283,19 +433,57 @@ def export_forest_masks(
         close_radius_px=close_radius_px,
     )
 
+    UI.lvprint(1, f"  Generated {len(polygons)} raw forest polygons from mask.")
+
+    road_file = Path(os.path.join(polygon_dir, "road_buffer.gpkg"))
+
+    # ─── Integrated Step: Custom Hook for Vector Road Slicing ───
+    if clean_overlays and road_file.exists():
+        original_tree_file =  Path(os.path.join(polygon_dir, "original_tree_buffer.gpkg"))
+        write_trees_to_gpkg(polygons, original_tree_file)
+
+        UI.lvprint(1, f"  Loading buffered roads from {road_file}...")
+        road_gdf = gpd.read_file(road_file)
+        buffered_roads = list(road_gdf.geometry)
+        if buffered_roads:
+            
+            print(f"BEFORE clean_tree_polygons: {len(polygons)} trees")
+            for i, poly in enumerate(polygons[:3]):  # Just first 3
+                print(f"  Tree {i}: windings[0] sample: {poly.windings[0][:3]}")
+
+            UI.lvprint(1, f"  Slicing forest assets against {len(buffered_roads)} road geometry constraints...")
+            polygons = clean_tree_polygons(polygons, buffered_roads)
+            UI.lvprint(1, f"  Remaining forest polygons after vector cleanup: {len(polygons)}")
+
+            # After clean_tree_polygons() call, add:
+            unchanged_count = len([p for p in polygons if p.tile_name == polygons[0].tile_name])  # rough check
+
+            UI.lvprint(1, f"\nDEBUG: Forest polygon count change")
+            UI.lvprint(1, f"  Before cleaning: 974 polygons")
+            UI.lvprint(1, f"  After cleaning: {len(polygons)} polygons")
+            UI.lvprint(1, f"  Increase factor: {len(polygons) / 974:.2f}x")
+            UI.lvprint(1, f"  Unchanged count (rough check): {unchanged_count}\n")
+
+        else:
+            UI.lvprint(1, "No buffered roads file found. Proceeding without road cleanup.")
+        
+        tree_file = Path(os.path.join(polygon_dir, "tree_buffer.gpkg"))
+        UI.lvprint(1, "  Exporting tree spatial vector data layer...")
+        write_trees_to_gpkg(polygons, tree_file)
+
     for poly in polygons:
         grouped.setdefault(dsf_key_for_polygon(poly), []).append(poly)
 
     total_polygons += len(polygons)
-    print(f"  Generated {len(polygons)} forest polygons")
+    UI.lvprint(1, f"  Generated {len(polygons)} forest polygons")
 
     if not grouped:
-        print("Warning: no forest polygons were generated from masks.")
+        UI.lvprint(1, "Warning: no forest polygons were generated from masks.")
         return
 
     multiple = len(grouped) > 1
-    print()
-    print(f"Writing {total_polygons} forest polygons into {len(grouped)} DSF text file(s)")
+    UI.lvprint(1, "")
+    UI.lvprint(1, f"Writing {total_polygons} forest polygons into {len(grouped)} DSF text file(s)")
 
     for (west, south), polygons in sorted(grouped.items()):
         out_path = output_path_for_key(output_file, west, south, multiple)
@@ -312,8 +500,8 @@ def export_forest_masks(
 
         dsf_name = format_dsf_name(south, west)
         dsf_folder = format_dsf_folder(south, west)
-        print(f"  Text: {out_path}")
-        print(f"  DSF : {dsf_name}")
+        UI.lvprint(1, f"  Text: {out_path}")
+        UI.lvprint(1, f"  DSF : {dsf_name}")
 
 
 def main():

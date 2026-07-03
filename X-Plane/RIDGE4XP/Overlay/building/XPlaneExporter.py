@@ -56,6 +56,11 @@ import shutil
 import random
 from pathlib import Path
 from collections import defaultdict
+import O4_UI_Utils as UI
+
+from shapely.geometry import Polygon as ShapelyPolygon
+from shapely.strtree import STRtree
+import geopandas as gpd
 
 # ── Facade catalogue (all ship with X-Plane 12, no extra libraries needed) ──
 #
@@ -333,7 +338,7 @@ def _write_apt_dat(path: Path, package_name: str, center_lat: float, center_lon:
     ]
 
     path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"  Wrote spawn helipad apt.dat  ({slug} @ {center_lat:.5f}, {center_lon:.5f})")
+    UI.lvprint(1, f"  Wrote spawn helipad apt.dat  ({slug} @ {center_lat:.5f}, {center_lon:.5f})")
 
 
 # ── Main export logic ─────────────────────────────────────────────────────────
@@ -346,14 +351,17 @@ def export(
     gsd: float,
     exclude_autogen: bool,
     min_area_m2: float,
+    polygon_dir: Path | None,
 ):
-    print(f"Reading {json_path} …")
+    from ..build_overlay_dsf import clean_overlays
+
+    UI.lvprint(1, f"Reading {json_path} …")
     with open(json_path) as f:
         data = json.load(f)
 
     tile_list = data.get("tileBuildingsList", [])
     if not tile_list:
-        print("No buildings found in JSON. Nothing to export.")
+        UI.lvprint(1, "No buildings found in JSON. Nothing to export.")
         return
 
     # Flatten all buildings into a global list, stamping _gsd onto each
@@ -364,17 +372,83 @@ def export(
             b["_gsd"] = gsd
             all_buildings.append(b)
 
-    print(f"  {len(all_buildings)} total buildings loaded.")
+    UI.lvprint(1, f"  {len(all_buildings)} total buildings loaded.")
 
     # Filter by minimum footprint area
     def _area(b):
         return _footprint_area_m2(b.get("width_px", 0), b.get("height_px", 0), gsd)
 
     all_buildings = [b for b in all_buildings if _area(b) >= min_area_m2]
-    print(f"  {len(all_buildings)} buildings pass the minimum area filter ({min_area_m2} m²).")
+    UI.lvprint(1, f"  {len(all_buildings)} buildings pass the minimum area filter ({min_area_m2} m²).")
+
+    buffered_roads_file = polygon_dir / "road_buffer.gpkg" if polygon_dir else None
+    tree_polygons_file = polygon_dir / "tree_buffer.gpkg" if polygon_dir else None
+
+    # ═══════════════════════════════════════════════════════════════
+    # Vector Slicing and Cleanup Layer (Roads & Trees)
+    # ═══════════════════════════════════════════════════════════════
+    if clean_overlays and buffered_roads_file and buffered_roads_file.exists() and tree_polygons_file and tree_polygons_file.exists():
+        buffered_roads = []
+        shapely_trees = []
+        UI.lvprint(1, "  Evaluating spatial constraints against roads and trees...")
+        initial_count = len(all_buildings)
+
+        UI.lvprint(1, f"  Loading road constraints from {buffered_roads_file.name}...")
+        road_gdf = gpd.read_file(buffered_roads_file)
+        if not road_gdf.empty:
+            buffered_roads = list(road_gdf.geometry)
+    
+        UI.lvprint(1, f"  Loading tree constraints from {tree_polygons_file.name}...")
+        tree_gdf = gpd.read_file(tree_polygons_file)
+
+        print(f"\nDEBUG: Coordinate check")
+        print(f"  First tree exterior coords sample:")
+        first_tree = tree_gdf.geometry.iloc[0]
+        coords = list(first_tree.exterior.coords)[:3]
+        for i, (lon, lat) in enumerate(coords):
+            print(f"    Point {i}: lon={lon:.4f}, lat={lat:.4f}")
+            
+        print(f"\n  Bounds check:")
+        print(f"  bounds = {tree_gdf.total_bounds}")
+
+        if not tree_gdf.empty:
+            shapely_trees = list(tree_gdf.geometry)
+
+        if buffered_roads or shapely_trees:
+            UI.lvprint(1, "  Evaluating spatial constraints against available layers...")
+            initial_count = len(all_buildings)
+
+            # Build spatial R-Trees for high performance slicing
+            road_index = STRtree(buffered_roads) if buffered_roads else None
+            tree_index = STRtree(shapely_trees) if shapely_trees else None
+            
+            cleaned_buildings = []
+            for b in all_buildings:
+                corners = b.get("corner_points_wgs84", [])
+                if not corners or len(corners) < 3:
+                    continue
+                
+                # JSON is [lat, lon] -> Shapely expects standard spatial (lon, lat) projection
+                building_poly = ShapelyPolygon([(lon, lat) for lat, lon in corners])
+                
+                # Check for road collision
+                if road_index and road_index.query(building_poly, predicate="intersects").size > 0:
+                    continue  # Drops the building if it sits on a street
+                    
+                # Check for tree/forest canopy collision
+                if tree_index and tree_index.query(building_poly, predicate="intersects").size > 0:
+                    continue  # Drops the building if it collides with forest land
+                    
+                cleaned_buildings.append(b)
+                
+            all_buildings = cleaned_buildings
+            UI.lvprint(1, f"  Dropped {initial_count - len(all_buildings)} buildings due to asset collisions.")
+        else:
+            UI.lvprint(1, "  Spatial cleaning skipped: No road_buffer.gpkg or tree_buffer.gpkg files found.")
+            
 
     if not all_buildings:
-        print("No buildings to export after filtering.")
+        UI.lvprint(1, "No buildings to export after filtering.")
         return
 
     # Assign a deterministic facade to each building (seeded by id for repeatability)
@@ -439,7 +513,7 @@ def export(
         txt_name = folder_name + ".txt"
         txt_path = tile_dir / txt_name
         txt_path.write_text(dsf_txt, encoding="utf-8")
-        print(f"  Wrote {txt_path}  ({len(bldgs)} buildings)")
+        UI.lvprint(1, f"  Wrote {txt_path}  ({len(bldgs)} buildings)")
         written += 1
 
     # ── library.txt ───────────────────────────────────────────────────────────
@@ -476,8 +550,8 @@ def export(
     readme = _build_readme(package_name, tiles, written, gsd, exclude_autogen)
     (pkg_root / "README.txt").write_text(readme, encoding="utf-8")
 
-    print(f"\nPackage written to: {pkg_root.resolve()}")
-    print(f"  Tiles: {written}  |  Buildings: {len(all_buildings)}")
+    UI.lvprint(1, f"\nPackage written to: {pkg_root.resolve()}")
+    UI.lvprint(1, f"  Tiles: {written}  |  Buildings: {len(all_buildings)}")
 
     # ── Optional: install directly into X-Plane ───────────────────────────────
     if xplane_root:
@@ -489,15 +563,15 @@ def _install(pkg_root: Path, package_name: str, xplane_root: str):
     xp = Path(xplane_root)
     custom = xp / "Custom Scenery"
     if not custom.is_dir():
-        print(f"  WARNING: Custom Scenery folder not found at {custom}. Skipping install.")
+        UI.lvprint(1, f"  WARNING: Custom Scenery folder not found at {custom}. Skipping install.")
         return
 
     dest = custom / package_name
     if dest.exists():
-        print(f"  Removing existing {dest} …")
+        UI.lvprint(1, f"  Removing existing {dest} …")
         shutil.rmtree(dest)
     shutil.copytree(pkg_root, dest)
-    print(f"  Installed to: {dest}")
+    UI.lvprint(1, f"  Installed to: {dest}")
 
     # Update scenery_packs.ini – add as first non-comment line after header
     ini_path = custom / "scenery_packs.ini"
@@ -514,16 +588,16 @@ def _install(pkg_root: Path, package_name: str, xplane_root: str):
                 break
         lines.insert(insert_at, entry)
         ini_path.write_text("".join(lines), encoding="utf-8")
-        print(f"  Updated {ini_path}")
+        UI.lvprint(1, f"  Updated {ini_path}")
     else:
         ini_path.write_text(
             "I\n1000 Version\nSCENERY\n\n" + entry, encoding="utf-8"
         )
-        print(f"  Created {ini_path}")
+        UI.lvprint(1, f"  Created {ini_path}")
 
-    print("\n  ✓ Package installed. Launch X-Plane 12 to see your buildings.")
-    print("  NOTE: DSF text files must be compiled to binary with DSFTool first.")
-    print("  See README.txt for instructions.")
+    UI.lvprint(1, "\n  ✓ Package installed. Launch X-Plane 12 to see your buildings.")
+    UI.lvprint(1, "  NOTE: DSF text files must be compiled to binary with DSFTool first.")
+    UI.lvprint(1, "  See README.txt for instructions.")
 
 
 def _build_readme(name, tiles, n_tiles, gsd, exclude_autogen) -> str:

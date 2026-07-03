@@ -19,7 +19,7 @@ import time
 import argparse
 from collections import defaultdict
 from pathlib import Path
-
+import O4_UI_Utils as UI
 # ─── Zorunlu bağımlılıklar ───
 try:
     import rasterio
@@ -27,7 +27,7 @@ try:
     HAS_RASTERIO = True
 except ImportError:
     HAS_RASTERIO = False
-    print("HATA: rasterio yüklü değil. pip install rasterio")
+    UI.lvprint(1, "HATA: rasterio yüklü değil. pip install rasterio")
     sys.exit(1)
 
 try:
@@ -36,8 +36,8 @@ try:
     from shapely.geometry import box, LineString, MultiLineString
     from shapely.strtree import STRtree
 except ImportError as e:
-    print(f"HATA: Eksik bağımlılık: {e}")
-    print("pip install osmnx geopandas shapely")
+    UI.lvprint(1, f"HATA: Eksik bağımlılık: {e}")
+    UI.lvprint(1, "pip install osmnx geopandas shapely")
     sys.exit(1)
 
 # ─── Sabitler ───
@@ -67,6 +67,24 @@ UNPAVED_TYPES = {"track","path","footway","service","cycleway"}
 MAX_AREA_DEG2 = 0.25
 MERGE_THRESH = 0.000005
 
+# Road widths in meters (total width of the road)
+ROAD_WIDTHS = {
+    "motorway":      16.0,
+    "trunk":         14.0,
+    "primary":       12.0,
+    "secondary":     10.0,
+    "tertiary":       8.0,
+    "residential":    7.0,
+    "living_street":  5.0,
+    "unclassified":   6.0,
+    "service":        4.0,
+    "track":          3.5,
+    "path":           1.5,
+    "footway":        1.5,
+    "cycleway":       2.0,
+    "pedestrian":     5.0,
+}
+DEFAULT_WIDTH = 6.0
 
 # ═══════════════════════════════════════════════════════════════
 # Argüman yönetimi
@@ -122,6 +140,68 @@ def dsf_tile_filename(lat, lon):
     lon_s = "+" if lon >= 0 else ""
     return f"{lat_s}{lat:02d}{lon_s}{lon:03d}"
 
+# ═══════════════════════════════════════════════════════════════
+# Width functions
+# ═══════════════════════════════════════════════════════════════
+
+def get_road_width(row):
+    """
+    Calculates road width in meters based on OSM tags.
+    Looks for explicit 'width' tag, then estimates via 'lanes', 
+    and falls back to standard highway type defaults.
+    """
+    # 1. Check if an explicit width tag exists
+    if 'width' in row and gpd.pd.notna(row['width']):
+        try:
+            # OSM widths can sometimes be strings like '3.5 m' or '3,5'
+            clean_w = str(row['width']).replace('m', '').replace(',', '.').strip()
+            return float(clean_w)
+        except ValueError:
+            pass
+            
+    # 2. Check if lanes exist to guess width (e.g., 3.5m per lane)
+    if 'lanes' in row and gpd.pd.notna(row['lanes']):
+        try:
+            lanes = int(str(row['lanes']).split(';')[0]) # Handle '2;3' anomalies
+            return max(lanes * 3.5, 4.0)
+        except ValueError:
+            pass
+
+    # 3. Fallback to highway type mapping
+    highway = str(row.get('highway', ''))
+    return ROAD_WIDTHS.get(highway, DEFAULT_WIDTH)
+
+def generate_road_buffers(gdf):
+    """
+    Takes the OSM GeoDataFrame, calculates widths, and returns 
+    a single merged polygon geometry representing all road footprints.
+    """
+    if gdf is None or len(gdf) == 0:
+        return None
+        
+    # Calculate metric width for each row
+    gdf['physical_width'] = gdf.apply(get_road_width, axis=1)
+    
+    # Keep track of original CRS (usually EPSG:4326)
+    original_crs = gdf.crs
+    
+    # Project to World Mercator (metric) for accurate buffering
+    gdf_metric = gdf.to_crs("EPSG:3857")
+    
+    buffered_geometries = []
+    for idx, row in gdf_metric.iterrows():
+        # Buffer distance is HALF of the total road width (left side + right side)
+        # Plus an optional 1.5 meter extra clearance buffer for safety
+        buffer_distance = (row['physical_width'] / 2.0) + 1.5
+        
+        buffered_poly = row.geometry.buffer(buffer_distance)
+        buffered_geometries.append(buffered_poly)
+        
+    # Create a new GeoDataFrame of polygons and project back to WGS84
+    roads_poly_gdf = gpd.GeoDataFrame(geometry=buffered_geometries, crs="EPSG:3857")
+    roads_poly_gdf = roads_poly_gdf.to_crs(original_crs)
+
+    return roads_poly_gdf
 
 # ═══════════════════════════════════════════════════════════════
 # ADIM 1: TIF'den tile bilgisini topla (Tek Dosya)
@@ -129,10 +209,10 @@ def dsf_tile_filename(lat, lon):
 
 def collect_tile_info(tif_path):
     if not os.path.isfile(tif_path):
-        print(f"HATA: TIF dosyası bulunamadı: {tif_path}")
+        UI.lvprint(1, f"HATA: TIF dosyası bulunamadı: {tif_path}")
         return []
 
-    print(f"  TIF okunuyor: {tif_path}")
+    UI.lvprint(1, f"  TIF okunuyor: {tif_path}")
     tiles = []
     
     try:
@@ -140,7 +220,7 @@ def collect_tile_info(tif_path):
             left, bottom, right, top = src.bounds
             crs = src.crs
     except Exception as e:
-        print(f"  UYARI: {tif_path} okunamadı: {e}")
+        UI.lvprint(1, f"  UYARI: {tif_path} okunamadı: {e}")
         return []
 
     if crs is not None and crs.is_geographic:
@@ -164,7 +244,7 @@ def collect_tile_info(tif_path):
         "height_m":      height_m,
     })
 
-    print(f"  Bounds: {wgs_bounds}")
+    UI.lvprint(1, f"  Bounds: {wgs_bounds}")
     return tiles
 
 
@@ -175,19 +255,19 @@ def fetch_osm_roads(tiles):
     gr = max(b[2] for b in all_wgs)
     gt = max(b[3] for b in all_wgs)
 
-    print(f"  Bbox: ({gl:.6f}, {gb:.6f}) -> ({gr:.6f}, {gt:.6f})")
+    UI.lvprint(1, f"  Bbox: ({gl:.6f}, {gb:.6f}) -> ({gr:.6f}, {gt:.6f})")
     area = (gr - gl) * (gt - gb)
-    print(f"  Alan: ~{area:.4f} derece²")
+    UI.lvprint(1, f"  Alan: ~{area:.4f} derece²")
 
     if area <= MAX_AREA_DEG2:
-        print("  OSM tek sorguyla çekiliyor...")
+        UI.lvprint(1, "  OSM tek sorguyla çekiliyor...")
         return _osm_single(gl, gb, gr, gt)
 
     n = max(1, math.ceil(math.sqrt(area / MAX_AREA_DEG2)))
     dx = (gr - gl) / n
     dy = (gt - gb) / n
     total = n * n
-    print(f"  Alan büyük → {n}x{n}={total} parçaya bölünüyor...")
+    UI.lvprint(1, f"  Alan büyük → {n}x{n}={total} parçaya bölünüyor...")
 
     all_gdfs = []
     done = 0
@@ -196,20 +276,20 @@ def fetch_osm_roads(tiles):
             done += 1
             cl, cb = gl + ix * dx, gb + iy * dy
             cr, ct = cl + dx, cb + dy
-            print(f"  [{done}/{total}] chunk ({ix},{iy})...", end=" ", flush=True)
+            UI.lvprint(1, f"  [{done}/{total}] chunk ({ix},{iy})...", end=" ", flush=True)
             gdf = _osm_single(cl, cb, cr, ct)
             if gdf is not None and len(gdf) > 0:
                 all_gdfs.append(gdf)
-                print(f"{len(gdf)} yol")
+                UI.lvprint(1, f"{len(gdf)} yol")
             else:
-                print("boş")
+                UI.lvprint(1, "boş")
             time.sleep(1.0)
 
     if not all_gdfs:
         return None
     combined = gpd.pd.concat(all_gdfs, ignore_index=True)
     combined = combined.drop_duplicates(subset="geometry")
-    print(f"  Toplam: {len(combined)} yol segmenti")
+    UI.lvprint(1, f"  Toplam: {len(combined)} yol segmenti")
     return combined
 
 def _osm_single(left, bottom, right, top):
@@ -220,12 +300,12 @@ def _osm_single(left, bottom, right, top):
         )
         return gdf[gdf.geometry.type.isin(["LineString", "MultiLineString"])]
     except Exception as e:
-        print(f"  OSM fetch hatası: {e}")
+        UI.lvprint(1, f"  OSM fetch hatası: {e}")
         return None
 
 def build_degree_tiles(tiles, gdf, skip_empty=True):
     if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
-        print("  OSM verisi WGS84'e dönüştürülüyor...")
+        UI.lvprint(1, "  OSM verisi WGS84'e dönüştürülüyor...")
         gdf = gdf.to_crs("EPSG:4326")
 
     all_geoms    = list(gdf.geometry)
@@ -286,6 +366,7 @@ def build_degree_tiles(tiles, gdf, skip_empty=True):
                 roads_found += 1
 
         if roads_found == 0:
+            UI.lvprint(1, f"  Boş tile: ({deg_lat}, {deg_lon})")
             empty_count += 1
 
     return degree_tiles
@@ -371,7 +452,7 @@ def write_scenery_package(output_dir, scenery_name, degree_tiles, exclude):
 
         excl = compute_exclusion(roads) if exclude else None
         if excl:
-            print(f"  Exclusion: ({excl[0]:.4f}, {excl[1]:.4f}) -> ({excl[2]:.4f}, {excl[3]:.4f})")
+            UI.lvprint(1, f"  Exclusion: ({excl[0]:.4f}, {excl[1]:.4f}) -> ({excl[2]:.4f}, {excl[3]:.4f})")
 
         dsf_text = generate_dsf_text(deg_lat, deg_lon, roads, excl)
         txt_path = os.path.join(tile_dir, f"{name}.txt")
@@ -379,7 +460,7 @@ def write_scenery_package(output_dir, scenery_name, degree_tiles, exclude):
             f.write(dsf_text)
 
         total_roads += len(roads)
-        print(f"  {folder}/{name}.txt  ({len(roads)} yol)")
+        UI.lvprint(1, f"  {folder}/{name}.txt  ({len(roads)} yol)")
 
     # Scripts for binary conversion
     with open(os.path.join(pack_dir, "convert_to_dsf.bat"), "w", encoding="utf-8") as f:
@@ -394,19 +475,55 @@ def write_scenery_package(output_dir, scenery_name, degree_tiles, exclude):
 # Ana İşlem Akışı (Callable Interface)
 # ═══════════════════════════════════════════════════════════════
 
-def process_roads_from_tif(tif_path, output_dir, scenery_name="Custom_Roads_Overlay", skip_empty=True, no_exclude=False):
+def process_roads_from_tif(tif_path, output_dir, polygon_dir=None, scenery_name="Custom_Roads_Overlay", skip_empty=True, no_exclude=False):
     """
     Main programmatic interface to build road overlays from a single GeoTIFF.
     Returns: pack_dir (str)
     """
+    from ..build_overlay_dsf import clean_overlays
+    
     tiles = collect_tile_info(tif_path)
     if not tiles:
-        print("HATA: TIF dosyası işlenemedi!")
+        UI.lvprint(1, "HATA: TIF dosyası işlenemedi!")
         return None
 
     gdf = fetch_osm_roads(tiles)
+
+    if(gdf is None or len(gdf) == 0):
+        UI.lvprint(1, "HATA: Bu TIF sınırları içinde hiç yol bulunamadı!")
+        sys.exit(1)
+
+    if clean_overlays and polygon_dir:
+        UI.lvprint(1, f"  Generating metric road clearances for {len(gdf)} segments...")
+
+        road_gdf = generate_road_buffers(gdf)
+        
+        if road_gdf is not None and not road_gdf.empty:
+            road_gdf.to_file(os.path.join(polygon_dir, "road_buffer.gpkg"), driver="GPKG")
+            print(f"  Saved {len(road_gdf)} independent road buffer vectors.")
+ 
+        # road_buffer = generate_road_buffers(gdf)
+        # road_gdf = gpd.GeoDataFrame(geometry=[road_buffer], crs="EPSG:4326") if road_buffer else None
+        # road_gdf.to_file(os.path.join(polygon_dir, "road_buffer.gpkg"), driver="GPKG")
+
+        # # # 1. Project to a metric system (EPSG:3857) so buffering uses meters, NOT degrees!
+        # # gdf_meters = gdf.to_crs(epsg=3857)
+        
+        # # # 2. Buffer each road segment individually (e.g., 4 meters on each side = 8m wide road)
+        # # # Keeping individual rows intact instead of merging into one massive object
+        # # gdf_meters["geometry"] = gdf_meters.geometry.buffer(4.0)
+        
+        # # # 3. Project back to standard unprojected WGS84 for X-Plane alignment
+        # # road_gdf = gdf_meters.to_crs(epsg=4326)
+        
+        # # # 4. Save to disk cleanly as an multi-row vector layer
+        # # os.makedirs(polygon_dir, exist_ok=True)
+        # # buffer_file = os.path.join(polygon_dir, "road_buffer.gpkg")
+        # # road_gdf.to_file(buffer_file, driver="GPKG")
+        # # print(f"  Successfully saved {len(road_gdf)} unique road buffer constraints.")
+
     if gdf is None or len(gdf) == 0:
-        print("HATA: Bu TIF sınırları içinde hiç yol bulunamadı!")
+        UI.lvprint(1, "HATA: Bu TIF sınırları içinde hiç yol bulunamadı!")
         return None
 
     degree_tiles = build_degree_tiles(tiles, gdf, skip_empty=skip_empty)
@@ -419,9 +536,9 @@ def main():
     t_start = time.time()
     args = parse_args()
 
-    print("=" * 60)
-    print("TIF → OSM → X-Plane 12 DSF Overlay")
-    print("=" * 60)
+    UI.lvprint(1, "=" * 60)
+    UI.lvprint(1, "TIF → OSM → X-Plane 12 DSF Overlay")
+    UI.lvprint(1, "=" * 60)
 
     pack_dir = process_roads_from_tif(
         tif_path=args.tif_path,
@@ -433,11 +550,11 @@ def main():
 
     if pack_dir:
         elapsed = time.time() - t_start
-        print(f"\n{'=' * 60}")
-        print(f"TAMAMLANDI! Toplam süre: {int(elapsed // 60)} dk {elapsed % 60:.1f} sn")
-        print(f"Çıktı: {pack_dir}")
+        UI.lvprint(1, f"\n{'=' * 60}")
+        UI.lvprint(1, f"TAMAMLANDI! Toplam süre: {int(elapsed // 60)} dk {elapsed % 60:.1f} sn")
+        UI.lvprint(1, f"Çıktı: {pack_dir}")
     else:
-        print("\nİşlem başarısız oldu veya yol bulunamadı.")
+        UI.lvprint(1, f"\nİşlem başarısız oldu veya yol bulunamadı.")
 
 if __name__ == "__main__":
     main()

@@ -457,53 +457,6 @@ def include_water(vector_map, tile):
 
 
 ################################################################################
-# def include_buildings(vector_map, tile):
-#     # should be all revisited
-#     UI.vprint(0, "-> Dealing with buildings")
-#     building_layer = OSM.OSM_layer()
-#     queries = []  #'way["building"="yes"]']
-#     tags_of_interest = []
-#     if not OSM.OSM_queries_to_OSM_layer(
-#         queries,
-#         building_layer,
-#         tile.lat,
-#         tile.lon,
-#         tags_of_interest,
-#         cached_suffix="buildings",
-#     ):
-#         return 0
-#     for (i, j) in itertools.product(range(1), range(1)):
-#         print("    Obtaining part ", 4 * i + j, " of OSM data for " + tag)
-#         response = get_overpass_data(
-#             tag,
-#             (lat + i / 4, lon + j / 4, lat + (i + 1) / 4, lon + (j + 1) / 4),
-#             "FR",
-#         )
-#         if UI.red_flag:
-#             return 0
-#         if response[0] != "ok":
-#             print("    Error while trying to obtain ", query, ", exiting.")
-#             return 0
-#         building_layer.update_dicosm(response[1], tags_of_interest)
-#     building_area = OSM.OSM_to_MultiPolygon(building_layer, lat, lon)
-#     try:
-#         (idx_building, dico_building) = MultiPolygon_to_Indexed_Polygons(
-#             building_area, merge_overlappings=True
-#         )
-#     except:
-#         return 0
-#     UI.vprint(2, "Number of building Multipolygons :", len(dico_pol_building))
-#     vector_map.encode_MultiPolygon(
-#         dico_building,
-#         dem.alt_vec,
-#         "WATER",
-#         area_limit=min_area / 10000,
-#         check=True,
-#     )
-#     return 1
-
-
-################################################################################
 def keep_obj8(
     lat_anchor,
     lon_anchor,

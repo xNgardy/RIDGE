@@ -3,6 +3,7 @@ import shutil
 from pathlib import Path
 
 import O4_File_Names as FNAMES
+import O4_UI_Utils as UI
 
 from Overlay.tree.crop_ndvi import crop_ndvi
 from Overlay.tree.generate_tree_masks import generate_masks
@@ -17,7 +18,7 @@ def generate_tree_overlay(tile):
     lon = tile.lon
 
     if not getattr(tile, 'local_data_root', None):
-        print("ERROR: local_data_root not configured for tree mask generation.")
+        UI.lvprint(1, "ERROR: local_data_root not configured for tree mask generation.")
         return
 
     data_root = Path(tile.local_data_root)
@@ -26,7 +27,7 @@ def generate_tree_overlay(tile):
     # Check for inputs
     rgb_path = tile_data_dir / "rgb.tif"
     if not rgb_path.exists():
-        print(f"Error: Required rgb.tif not found at {rgb_path}")
+        UI.lvprint(1, f"Error: Required rgb.tif not found at {rgb_path}")
         return
 
     # Either ndvi.tif or ndvi.tiff
@@ -34,7 +35,7 @@ def generate_tree_overlay(tile):
     if not ndvi_path.exists():
         ndvi_path = tile_data_dir / "ndvi.tiff"
         if not ndvi_path.exists():
-            print(f"Error: Required ndvi.tif/tiff not found at {tile_data_dir}")
+            UI.lvprint(1, f"Error: Required ndvi.tif/tiff not found at {tile_data_dir}")
             return
 
     # Prepare temp directory in ./tmp/
@@ -43,13 +44,13 @@ def generate_tree_overlay(tile):
     temp_dir = base_tmp_dir / f"tree_gen_{lat}_{lon}"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"--- Starting Tree Overlay Generation for Tile {lat}/{lon} ---")
+    UI.lvprint(1, f"--- Starting Tree Overlay Generation for Tile {lat}/{lon} ---")
 
     # Step 1: Crop NDVI bounds
     try:
         ndvi_tif_path = crop_ndvi(ndvi_path, rgb_path, temp_dir)
     except Exception as e:
-        print(f"Error during NDVI crop: {e}")
+        UI.lvprint(1, f"Error during NDVI crop: {e}")
         return
 
     # Step 2: Generate Tree Masks
@@ -65,11 +66,11 @@ def generate_tree_overlay(tile):
             seed=seed,
         )
     except Exception as e:
-        print(f"Error during tree mask generation: {e}")
+        UI.lvprint(1, f"Error during tree mask generation: {e}")
         return
 
     if not mask_path:
-        print("Skipping export: No masks were generated.")
+        UI.lvprint(1, "Skipping export: No masks were generated.")
         return
 
     # Step 3: Export Forest Masks
@@ -78,11 +79,15 @@ def generate_tree_overlay(tile):
     trees_out_dir.mkdir(parents=True, exist_ok=True)
 
     out_file = trees_out_dir / "Earth nav data" / FNAMES.round_latlon(lat, lon) / (FNAMES.short_latlon(lat, lon) + ".txt")
+
+    polygon_dir = base_tmp_dir / f"polygons_{lat}_{lon}"
+    polygon_dir.mkdir(parents=True, exist_ok=True)
     try:
         export_forest_masks(
             mask_file=mask_path,
             rgb_tif=rgb_path,
             output_file=out_file,
+            polygon_dir=polygon_dir,
             forest=forest,
             density=xplane_density,
             min_area_px=min_area_px,
@@ -94,17 +99,17 @@ def generate_tree_overlay(tile):
             exclude_objects=exclude_objects,
         )
     except Exception as e:
-        print(f"Error during forest mask export: {e}")
+        UI.lvprint(1, f"Error during forest mask export: {e}")
         return
 
-    print(f"--- Finished Tree Overlay Generation for Tile {lat}/{lon} ---")
+    UI.lvprint(1, f"--- Finished Tree Overlay Generation for Tile {lat}/{lon} ---")
 
     # Step 4: Cleanup
     cleaning_level = getattr(tile, 'cleaning_level', 1)
     if cleaning_level >= 2:
-        print("Cleaning up temporary tree generation files...")
+        UI.lvprint(1, "Cleaning up temporary tree generation files...")
         try:
             shutil.rmtree(temp_dir)
-            print("Cleanup successful.")
+            UI.lvprint(1, "Cleanup successful.")
         except Exception as e:
-            print(f"Error during cleanup: {e}")
+            UI.lvprint(1, f"Error during cleanup: {e}")

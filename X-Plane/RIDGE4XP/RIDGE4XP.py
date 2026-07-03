@@ -3,6 +3,7 @@
 RIDGE4XP - Local data only mode (CLI only, no GUI)
 Simple command-line interface for generating X-Plane terrain from local data.
 """
+import shutil
 import sys
 import os
 import traceback
@@ -22,27 +23,28 @@ import Overlay.tree.tree_overlay_generator as TREE
 import Overlay.building.building_overlay_generator as BUILDING
 import Overlay.road.road_overlay_generator as ROAD
 import Overlay.build_overlay_dsf as CSTM_OVL
+
 def main():
     """Main entry point for CLI-only operation."""
     if not os.path.isdir(FNAMES.Utils_dir):
-        print("ERROR: Missing", FNAMES.Utils_dir, "directory. Check your install.")
+        UI.lvprint(1, "ERROR: Missing", FNAMES.Utils_dir, "directory. Check your install.")
         sys.exit(1)
 
     if not os.path.isdir(FNAMES.Data_dir):
-        print("ERROR: Missing", FNAMES.Data_dir, "directory. Check your install.")
+        UI.lvprint(1, "ERROR: Missing", FNAMES.Data_dir, "directory. Check your install.")
         sys.exit(1)
 
     # Parse command line arguments
     if len(sys.argv) < 3:
-        print("Usage: python RIDGE4XP.py <lat> <lon>")
-        print("  Uses existing .cfg file in tile directory")
+        UI.lvprint(1, "Usage: python RIDGE4XP.py <lat> <lon>")
+        UI.lvprint(1, "  Uses existing .cfg file in tile directory")
         sys.exit(1)
 
     try:
         lat = int(sys.argv[1])
         lon = int(sys.argv[2])
     except ValueError:
-        print("ERROR: lat and lon must be integers")
+        UI.lvprint(1, "ERROR: lat and lon must be integers")
         sys.exit(1)
 
     # Load or create tile config
@@ -50,48 +52,57 @@ def main():
         tile = CFG.Tile(lat, lon, '')
         result = tile.read_from_config()
         if not result:
-            print(f"WARNING: No config file found for tile {lat}/{lon}, using defaults")
+            UI.lvprint(1, f"WARNING: No config file found for tile {lat}/{lon}, using defaults")
 
         # Set local data root from config
         if tile.local_data_root:
             UI.local_data_root = tile.local_data_root
-            print(f"Using local data from: {tile.local_data_root}")
+            UI.lvprint(1, f"Using local data from: {tile.local_data_root}")
         else:
-            print("ERROR: local_data_root not configured in tile config file")
+            UI.lvprint(1, "ERROR: local_data_root not configured in tile config file")
             sys.exit(1)
     except Exception as e:
-        print(f"ERROR: Could not load tile config: {e}")
+        UI.lvprint(1, f"ERROR: Could not load tile config: {e}")
         traceback.print_exc()
         sys.exit(1)
 
     # Run pipeline
     try:
-        print(f"Processing tile {lat}/{lon}...")
-        if "Buildings" in CSTM_OVL.generated_overlays:
-            print(f"  Generating building overlay...")
-            BUILDING.generate_building_overlay(tile)
-        if "Trees" in CSTM_OVL.generated_overlays:
-            print(f"  Generating tree overlay...")
-            TREE.generate_tree_overlay(tile)
-        if "Roads" in CSTM_OVL.generated_overlays:
-            print(f"  Generating road overlay...")
+        UI.lvprint(1, f"Processing tile {lat}/{lon}...")
+
+        if "Roads" in CSTM_OVL.generated_overlays or CSTM_OVL.clean_overlays:
+            UI.lvprint(1, f"  Generating road overlay...")
             ROAD.generate_road_overlay(tile)
+
+        if "Trees" in CSTM_OVL.generated_overlays or CSTM_OVL.clean_overlays:
+            UI.lvprint(1, f"  Generating tree overlay...")
+            TREE.generate_tree_overlay(tile)
+
+        if "Buildings" in CSTM_OVL.generated_overlays or CSTM_OVL.clean_overlays:
+            UI.lvprint(1, f"  Generating building overlay...")
+            BUILDING.generate_building_overlay(tile)
+
+        if CSTM_OVL.clean_overlays:
+            shutil.rmtree(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tmp", f"polygons_{lat}_{lon}"), ignore_errors=True)
+
         if CFG.generate_terrain:
-            print("  Building vector map...")
+            UI.lvprint(1, "  Building vector map...")
             VMAP.build_poly_file(tile)
-            print("  Building mesh...")
+            UI.lvprint(1, "  Building mesh...")
             MESH.build_mesh(tile)
-            print("  Building masks...")
+            UI.lvprint(1, "  Building masks...")
             MASK.build_masks(tile)
-            print("  Building tile...")
+            UI.lvprint(1, "  Building tile...")
             TILE.build_tile(tile)
-        if CSTM_OVL.generated_overlays:
-            print(f"  Building overlay DSF(s)...")
+
+        if CSTM_OVL.generated_overlays or CSTM_OVL.clean_overlays:
+            UI.lvprint(1, f"  Building overlay DSF(s)...")
             CSTM_OVL.build_overlay_dsfs(tile)
-        print(f"✓ Tile {lat}/{lon} complete!")
+
+        UI.lvprint(1, f"✓ Tile {lat}/{lon} complete!")
         return 0
     except Exception as e:
-        print(f"ERROR during tile generation: {e}")
+        UI.lvprint(1, f"ERROR during tile generation: {e}")
         traceback.print_exc()
         return 1
 

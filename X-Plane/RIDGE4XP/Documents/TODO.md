@@ -1,0 +1,12 @@
+- Adjust brightness/contrast/color of the terrain textures.
+- Check if there is a way to shrink intersected buildings.
+- Clean console output logs.
+- Clean unnecesary functions, variables, etc.
+- Gather all the necessary folder and file names under the O4_File_Names.py to make it centrall.
+- Convert some variable/function/script etc. names to fit with RIDGE4XP.
+- Make the log in the GUI un-writable.
+- Make the added vars list scrollable. (Currently it can only be scrolled by using the scroll wheel on the scrollbar or dragging it)
+- Add the NDVI threshold and the clean_overlay to the default cfg vars list.
+- Add clean console button to GUI.
+- Add option to import/export config files.
+- Add RIDGE logo as icon.

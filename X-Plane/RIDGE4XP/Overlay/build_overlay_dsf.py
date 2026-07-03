@@ -3,10 +3,13 @@ from pathlib import Path
 import re
 import subprocess
 import O4_File_Names as FNAMES
+import O4_UI_Utils as UI
+
+overlay_types = ["Roads", "Trees", "Buildings"]
 
 def build_overlay_dsfs(tile):
     if separate_overlays:
-        for overlay_type in generated_overlays:
+        for overlay_type in (generated_overlays if not clean_overlays else overlay_types):
             build_overlay_dsf(tile, overlay_type)
     else:
         build_combined_overlay_dsf(tile)
@@ -15,7 +18,7 @@ def build_overlay_dsf(tile, overlay_type):
     dsf_textPath = Path(tile.build_dir) / overlay_type / "Earth nav data" / FNAMES.round_latlon(tile.lat, tile.lon) / FNAMES.short_latlon(tile.lat, tile.lon) + ".txt" 
 
     if not dsf_textPath.exists():
-        print(f"DSF text file for {overlay_type} not found at {dsf_textPath}. Skipping DSF generation for this overlay.")
+        UI.lvprint(1, f"DSF text file for {overlay_type} not found at {dsf_textPath}. Skipping DSF generation for this overlay.")
         return
 
     dsf_outPath = Path(tile.build_dir) / overlay_type / "Earth nav data" / FNAMES.round_latlon(tile.lat, tile.lon) / FNAMES.short_latlon(tile.lat, tile.lon) + ".dsf"
@@ -28,28 +31,25 @@ def build_overlay_dsf(tile, overlay_type):
     elif system == "Linux":
         exe_path = Path(FNAMES.Utils_dir) / "lin" / "DSFTool"
     else:
-        print(f"Unsupported operating system: {system}")
+        UI.lvprint(1, f"Unsupported operating system: {system}")
         return
 
     cmd = [exe_path, "--text2dsf", dsf_textPath, dsf_outPath]
     subprocess.run(cmd, check=True)
 
-    print(f"✓ {overlay_type} DSF generated at {dsf_outPath}")
+    UI.lvprint(1, f"✓ {overlay_type} DSF generated at {dsf_outPath}")
     
 
 def build_combined_overlay_dsf(tile):
     polygon_def_count = 0
-    # overlay_prop_start_idxs = {o: 0 for o in generated_overlays}
-    # overlay_headers = {o: "" for o in generated_overlays}
+    overlay_dict = {o: {"polygon_def_start_idx": 0, "header": "", "defs": "", "def_end_line": 0} for o in (generated_overlays if not clean_overlays else overlay_types)}
 
-    overlay_dict = {o: {"polygon_def_start_idx": 0, "header": "", "defs": "", "def_end_line": 0} for o in generated_overlays}
-
-    for overlay_type in generated_overlays:
+    for overlay_type in overlay_dict.keys():
         dsf_textPath = Path(tile.build_dir) / overlay_type / "Earth nav data" / FNAMES.round_latlon(tile.lat, tile.lon) / (FNAMES.short_latlon(tile.lat, tile.lon) + ".txt") 
         if dsf_textPath.exists():
             if overlay_type != "Roads":
                 overlay_dict[overlay_type]["polygon_def_start_idx"] = polygon_def_count
-                print(f"Overlay {overlay_type} polygon defs will start at index {polygon_def_count} in combined DSF")
+                UI.lvprint(1, f"Overlay {overlay_type} polygon defs will start at index {polygon_def_count} in combined DSF")
             else:
                 overlay_dict[overlay_type]["polygon_def_start_idx"] = None
 
@@ -69,9 +69,7 @@ def build_combined_overlay_dsf(tile):
                     else:
                         overlay_dict[overlay_type]["header"] += line
         else:
-            print(f"DSF text file for {overlay_type} not found at {dsf_textPath}. Skipping this overlay in combined DSF generation.")
-            # overlay_prop_start_idxs.pop(overlay_type, None)
-            # overlay_headers.pop(overlay_type, None)
+            UI.lvprint(1, f"DSF text file for {overlay_type} not found at {dsf_textPath}. Skipping this overlay in combined DSF generation.")
             overlay_dict.pop(overlay_type, None)
 
     combined_header = "".join(overlay_dict[o]["header"] for o in overlay_dict)
@@ -84,13 +82,13 @@ def build_combined_overlay_dsf(tile):
         dst.write(combined_header)
         dst.write(combined_defs)
 
-        for overlay_type in generated_overlays:
+        for overlay_type in overlay_dict.keys():
             src_path = Path(tile.build_dir) / overlay_type / "Earth nav data" / FNAMES.round_latlon(tile.lat, tile.lon) / (FNAMES.short_latlon(tile.lat, tile.lon) + ".txt")
-            print(f"Processing {overlay_type} for combined DSF from {src_path}")
+            UI.lvprint(1, f"Processing {overlay_type} for combined DSF from {src_path}")
             with open(src_path, 'r', encoding='utf-8') as src:
                 for lineno, line in enumerate(src, 1):
                     if lineno < overlay_dict[overlay_type]["def_end_line"]:
-                        print(f"Skipping line {lineno} of {overlay_type} (header/defs already included)")
+                        UI.lvprint(1, f"Skipping line {lineno} of {overlay_type} (header/defs already included)")
                         continue
                     if line.startswith("BEGIN_POLYGON"):
                         def add(match): return str(int(match.group(0)) + overlay_dict[overlay_type]["polygon_def_start_idx"])
@@ -108,10 +106,10 @@ def build_combined_overlay_dsf(tile):
     elif system == "Linux":
         exe_path = Path(FNAMES.Utils_dir) / "lin" / "DSFTool"
     else:
-        print(f"Unsupported operating system: {system}")
+        UI.lvprint(1, f"Unsupported operating system: {system}")
         return
 
     cmd = [exe_path, "--text2dsf", combined_dsf_textPath, combined_dsf_outPath]
     subprocess.run(cmd, check=True)
 
-    print(f"✓ Overlay DSF generated at {combined_dsf_outPath}")
+    UI.lvprint(1, f"✓ Overlay DSF generated at {combined_dsf_outPath}")

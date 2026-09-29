@@ -83,6 +83,44 @@ def clean_geodataframe(gdf: gpd.GeoDataFrame, name: str) -> gpd.GeoDataFrame:
     return gdf
 
 
+def load_evaluation_boundary(path, epsg):
+    """Read an explicit, prediction-independent valid evaluation footprint."""
+    boundary = gpd.read_file(path)
+    if boundary.crs is None:
+        raise ValueError("Evaluation boundary must have a CRS.")
+    boundary = boundary.to_crs(epsg=epsg)
+    if not boundary.crs.is_projected or any(
+        axis.unit_name.lower() not in ("metre", "meter")
+        for axis in boundary.crs.axis_info[:2]
+    ):
+        raise ValueError("Evaluation CRS must be projected in metres.")
+    if boundary.empty or boundary.geometry.isna().any():
+        raise ValueError("Evaluation boundary must contain valid polygons.")
+    if not boundary.geom_type.isin(["Polygon", "MultiPolygon"]).all():
+        raise ValueError("Evaluation boundary must be polygonal.")
+    if not boundary.geometry.is_valid.all() or boundary.geometry.is_empty.any():
+        raise ValueError("Evaluation boundary contains invalid or empty geometry.")
+    footprint = unary_union(boundary.geometry)
+    if footprint.area <= 0:
+        raise ValueError("Evaluation boundary must have positive area.")
+    return footprint
+
+
+def clip_evaluation_objects(gdf, footprint):
+    """Clip objects; retain one object per input row even if clipping splits it."""
+    clipped = gdf.copy()
+    clipped.geometry = clipped.geometry.intersection(footprint)
+    # Boundary-only contacts are not evaluated as buildings.
+    clipped = clipped.loc[~clipped.geometry.is_empty & (clipped.geometry.area > 0)].copy()
+    def polygonal(geom):
+        if geom.geom_type in ("Polygon", "MultiPolygon"):
+            return geom
+        return unary_union([part for part in geom.geoms
+                            if part.geom_type in ("Polygon", "MultiPolygon")])
+    clipped.geometry = clipped.geometry.map(polygonal)
+    return clipped.reset_index(drop=True)
+
+
 def boundary_band(geom, width: float):
     """Return a polygon representing the boundary band of width `width` metres."""
     outer = geom.buffer(width / 2)
@@ -315,6 +353,8 @@ def save_readable_report(output_path: Path, console_log: str, args_dict: dict,
     w(f"  Generated : {now}")
     w(f"  GT file   : {gt_path}")
     w(f"  Pred file : {pred_path}")
+    w(f"  Evaluation boundary: {args_dict['evaluation_boundary']}")
+    w("  Boundary policy: clip polygons; retain one object per cleaned input row.")
     w(f"  EPSG      : {args_dict['epsg']}")
     w(f"  IoU thr.  : {args_dict['iou_threshold']}")
     w(f"  Boundary  : {args_dict['boundary_width']} m")
@@ -322,7 +362,7 @@ def save_readable_report(output_path: Path, console_log: str, args_dict: dict,
 
     # ── A. Pixel-level ────────────────────────────────────────────
     w("")
-    w("  A.  PIXEL-LEVEL METRICS  (area-arithmetic over study area)")
+    w("  A.  AREA-BASED METRICS  (area-arithmetic over study area)")
     w(sep2)
     w(f"  Study area                  : {study_area:>15,.1f} m²  "
       f"({study_area/1e6:.4f} km²)")
@@ -367,7 +407,7 @@ def save_readable_report(output_path: Path, console_log: str, args_dict: dict,
         "Centroid_dist_m": "C7. Centroid Distance Statistics (metres)",
     }
 
-    for key, title in stat_sections.keys() if not matches else stat_sections.items():
+    for key, title in stat_sections.items():
         pass  # just iterate below
 
     for key, title in stat_sections.items():
@@ -431,13 +471,13 @@ def save_readable_csv(output_path: Path, pix, obj, ap50, ap5095,
                      "Value": value, "Notes": notes})
 
     # A — pixel
-    S = "A - Pixel-level"
-    r(S, "Study Area (m²)",    round(study_area, 2),        "Bounding-box union of GT + Pred")
+    S = "A - Area-based"
+    r(S, "Study Area (m²)",    round(study_area, 2),        "Explicit evaluation boundary; GT and predictions clipped")
     r(S, "IoU (Jaccard)",      round(pix["IoU_Jaccard"], 6), "Intersection over Union")
     r(S, "Dice / F1",          round(pix["F1_Dice"], 6),     "2*TP / (2*TP+FP+FN)")
     r(S, "Precision",          round(pix["Precision"], 6),   "TP / (TP+FP)")
     r(S, "Recall",             round(pix["Recall"], 6),      "TP / (TP+FN)")
-    r(S, "Pixel Accuracy",     round(pix["Pixel_Accuracy"], 6), "(TP+TN) / total area")
+    r(S, "Area-based Accuracy",     round(pix["Pixel_Accuracy"], 6), "(TP+TN) / total area")
     r(S, "mIoU",               round(pix["mIoU"], 6),        "Mean of building-IoU and background-IoU")
     r(S, "TP area (m²)",       round(pix["TP_area_m2"], 2))
     r(S, "FP area (m²)",       round(pix["FP_area_m2"], 2))
@@ -500,10 +540,13 @@ def save_readable_csv(output_path: Path, pix, obj, ap50, ap5095,
 # Main evaluation pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
-def evaluate(gt_path, pred_path, epsg, iou_threshold, boundary_width, output_path):
+def evaluate(gt_path, pred_path, epsg, iou_threshold, boundary_width, output_path, evaluation_boundary):
     # Always ensure the base output path ends with .csv so that
     # .with_suffix() and .with_name() calls produce correct sibling paths.
     output_path = Path(output_path).with_suffix(".csv")
+
+    footprint = load_evaluation_boundary(evaluation_boundary, epsg)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Capture everything printed to the console
     tee = Tee()
@@ -526,15 +569,18 @@ def evaluate(gt_path, pred_path, epsg, iou_threshold, boundary_width, output_pat
     gt   = clean_geodataframe(gt_raw,   "GT")
     pred = clean_geodataframe(pred_raw, "Pred")
 
-    combined_bounds = unary_union([
-        gt.geometry.unary_union.envelope,
-        pred.geometry.unary_union.envelope
-    ]).envelope
-    study_area = combined_bounds.area
+    gt = clip_evaluation_objects(gt, footprint)
+    pred = clip_evaluation_objects(pred, footprint)
+    study_area = footprint.area
+    print(f"  Evaluation boundary: {Path(evaluation_boundary).resolve()}")
+    print("  Boundary policy: clip polygons; retain one object per cleaned input row.")
+    gpd.GeoDataFrame(geometry=[footprint], crs=f"EPSG:{epsg}").to_file(
+        output_path.with_name(output_path.stem + "_boundary.geojson"), driver="GeoJSON"
+    )
     print(f"\n[3] Study area: {study_area:,.1f} m²  ({study_area/1e6:.4f} km²)")
 
     # ── Pixel-level ───────────────────────────────────────────────
-    print("\n[4] Computing pixel-level metrics (area arithmetic)...")
+    print("\n[4] Computing area-based metrics (area arithmetic)...")
     gt_union   = gt.geometry.unary_union
     pred_union = pred.geometry.unary_union
     pix = pixel_level_metrics(gt_union, pred_union, study_area)
@@ -542,7 +588,7 @@ def evaluate(gt_path, pred_path, epsg, iou_threshold, boundary_width, output_pat
     print(f"  Dice / F1:      {pix['F1_Dice']:.4f}")
     print(f"  Precision:      {pix['Precision']:.4f}")
     print(f"  Recall:         {pix['Recall']:.4f}")
-    print(f"  Pixel Accuracy: {pix['Pixel_Accuracy']:.4f}")
+    print(f"  Area Accuracy: {pix['Pixel_Accuracy']:.4f}")
     print(f"  mIoU:           {pix['mIoU']:.4f}")
 
     # ── Object-level ──────────────────────────────────────────────
@@ -611,7 +657,7 @@ def evaluate(gt_path, pred_path, epsg, iou_threshold, boundary_width, output_pat
 
     # Human-readable TXT report (includes full console log)
     args_dict = dict(epsg=epsg, iou_threshold=iou_threshold,
-                     boundary_width=boundary_width)
+                     boundary_width=boundary_width, evaluation_boundary=str(Path(evaluation_boundary).resolve()))
     save_readable_report(
         output_path, console_log, args_dict,
         pix, obj, ap50, ap5095,
@@ -645,6 +691,8 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Evaluate a building segmentation model against ground truth shapefiles."
     )
+    parser.add_argument("--evaluation-boundary", required=True,
+                        help="Common valid evaluation footprint (GeoJSON/shapefile); identical for all models.")
     parser.add_argument("--gt",   required=True)
     parser.add_argument("--pred", required=True)
     parser.add_argument("--epsg", type=int, default=32637)
@@ -663,4 +711,5 @@ if __name__ == "__main__":
         iou_threshold=args.iou_threshold,
         boundary_width=args.boundary_width,
         output_path=args.output,
+        evaluation_boundary=args.evaluation_boundary,
     )

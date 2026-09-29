@@ -1,0 +1,8 @@
+metric,value
+source,/Users/pelinsukaleli/Library/Application Support/Steam/steamapps/common/X-Plane 12/Data.txt
+fps_column,"f-act,_/sec"
+sample_count,2046
+average_fps,61.295477741935485
+one_percent_low_fps,47.30938
+minimum_fps,0.38581
+maximum_fps,70.03616

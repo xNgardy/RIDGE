@@ -1,0 +1,10 @@
+metric,value
+source,C:\Program Files (x86)\Steam\steamapps\common\X-Plane 12\Data.txt
+fps_column,"f-act,_/sec"
+skip_initial_seconds,0.0
+skipped_samples,0
+sample_count,1951
+average_fps,56.10301928241938
+one_percent_low_fps,5.445289
+minimum_fps,0.22178
+maximum_fps,77.32056

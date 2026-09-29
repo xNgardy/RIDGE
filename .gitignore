@@ -109,6 +109,14 @@ Unity_Engine/Assets/AssetStoreTools*
 *.log
 *.bak
 *.tmp
+
+# Local paper/manuscript sources and generated review artifacts
+/paper/
+/tmp/
+/RIDGE_References_Checked.txt
+/tools/build_ridge_paper_draft.py
+~$*.docx
+
 Data_Pipeline/src/Tree_Detection_Module/xplane/RIDGE_Trees_Strict
 Data_Pipeline/src/Tree_Detection_Module/xplane/xptools_mac_24-5
 Data_Pipeline/src/Tree_Detection_Module/xplane/*.dsf

@@ -353,7 +353,10 @@ def export(
     min_area_m2: float,
     polygon_dir: Path | None,
 ):
-    from ..build_overlay_dsf import clean_overlays
+    try:
+        from ..build_overlay_dsf import clean_overlays
+    except ImportError:
+        clean_overlays = False
 
     UI.lvprint(1, f"Reading {json_path} …")
     with open(json_path) as f:

@@ -243,7 +243,7 @@ if __name__ == "__main__":
     # Load .env (if present) and prefer CLI arg over env variable
     load_dotenv()
 
-    api_key = "5bH01GX0jHfdgfkHe0zW"
+    api_key = os.getenv("ROBOFLOW_API_KEY")
 
     if not api_key:
         raise SystemExit(

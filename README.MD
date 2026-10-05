@@ -1,149 +1,229 @@
-<!--
-Quick tip: Right-click this README.md file in VS Code and choose "Open Preview" (or press Ctrl+K V)
-for a nicer rendered view.
--->
+# RIDGE
 
-Usage: python script.py ./my_tiles --model model_path
-Install the model from : https://chmura.put.poznan.pl/s/MwhgQNhyQF3fuBs?opendetails=
+RIDGE converts geospatial imagery and elevation data into terrain, buildings,
+roads, and vegetation for Unity and X-Plane 12. It contains a Python data
+pipeline, Unity placement scripts, and RIDGE4XP, a modified fork of
+[Ortho4XP](https://github.com/oscarpilote/Ortho4XP) by Oscar Pilote.
 
-# X-Plane 12 Building Export & Installation
+Source imagery, trained model weights, complete Unity scenes, and generated
+scenery packages must be supplied or generated separately.
 
-Detect buildings from aerial imagery and export them as a ready-to-install X-Plane 12 scenery package.
+## Repository layout
 
----
+| Directory | Contents |
+| --- | --- |
+| `Data_Pipeline/src/Core_Terrain_Module/` | RGB tiling and DEM-to-Unity terrain conversion |
+| `Data_Pipeline/src/Automated_Mask_Pipeline/` | Raw/prepared input pipeline, GUI, mask cleanup, and Unity export |
+| `Data_Pipeline/src/Building_Detection_Module/` | RAMP/Roboflow building detection and standalone X-Plane export |
+| `Data_Pipeline/src/Road_Detection_Module/` | OSM road extraction, masks, and X-Plane road export |
+| `Data_Pipeline/src/Tree_Detection_Module/` | NDVI processing, tree positions, masks, and forest export |
+| `Data_Pipeline/src/Evaluation/` | Building and forest segmentation evaluation |
+| `Unity_Scripts/` | Terrain, building, road, tree, material, and benchmark scripts |
+| `X-Plane/RIDGE4XP/` | Terrain and overlay generation, CLI, and configuration GUI |
+| `benchmarks/` | Recorded Unity and X-Plane measurements for macOS and Windows |
+| `docs/` | Benchmark protocol and platform reproducibility snapshots |
+| `tools/` | Building conversion and X-Plane FPS parsing utilities |
 
-## Prerequisites
+## Python setup
 
-- Python 3.x
-- [DSFTool](https://developer.x-plane.com/tools/xptools/) (for compiling scenery files)
-- X-Plane 12
+The recorded macOS setup used Python 3.12.9; the pipeline source requires Python
+3.10 or newer. Use separate environments when workflows need different package
+versions. Run examples from the repository root unless indicated otherwise.
+After activation, `python` refers to the environment's interpreter.
 
----
-
-## Step 1 — Run Building Detection
-
-```bash
-python script.py ./my_tiles --model model_path
-```
-
-Download the detection model:
-**[Download model](https://chmura.put.poznan.pl/s/MwhgQNhyQF3fuBs?opendetails=)**
-
-This produces a `buildings.json` file used in the next step.
-
----
-
-## Step 2 — Export to X-Plane 12
-
-Convert `buildings.json` into a scenery package:
+macOS / Linux:
 
 ```bash
-python xplane_exporter.py buildings.json \
-  --out XP12_Buildings \
-  --name My_City_Buildings \
-  --exclude-autogen
+python3 -m venv Data_Pipeline/venv
+source Data_Pipeline/venv/bin/activate
+python -m pip install --upgrade pip
 ```
 
-### Options
-
-| Option | Default | Description |
-|---|---|---|
-| `--out` | `XP12_Buildings` | Output folder name |
-| `--name` | same as `--out` | Package name shown in X-Plane |
-| `--gsd` | `0.5` | Metres per pixel (adjust if imagery differs) |
-| `--exclude-autogen` | off | Removes default buildings where yours are placed *(recommended)* |
-| `--min-area` | `25` | Minimum building footprint in m² |
-| `--xplane` | — | Path to X-Plane 12 install for auto-install |
-
-### Auto-install example
-
-```bash
-python xplane_exporter.py buildings.json \
-  --out XP12_Buildings \
-  --name My_City_Buildings \
-  --exclude-autogen \
-  --xplane "D:\SteamLibrary\steamapps\common\X-Plane 12"
-```
-
----
-
-## Step 3 — Generated Folder Structure
-
-```
-XP12_Buildings/
-├── Earth nav data/
-│   └── +30+030/
-│       └── +39+032.txt    ← needs compilation (see Step 4)
-├── apt.dat
-├── library.txt
-├── scenery_pack.ini
-└── README.txt
-```
-
----
-
-## Step 4 — Compile DSF Files
-
-X-Plane cannot read `.txt` scenery files directly. They must be compiled to `.dsf` using **DSFTool**.
-
-### Download DSFTool
-
-| Platform | Link |
-|---|---|
-| Windows | https://files.x-plane.com/public/xptools/xptools_win_24-5.zip |
-| macOS | https://files.x-plane.com/public/xptools/xptools_mac_24-5.zip |
-| Linux | https://files.x-plane.com/public/xptools/xptools_lin_24-5.zip |
-
-Extract the archive and use `DSFTool.exe` (Windows) or `DSFTool` (macOS/Linux).
-
-### Compile — Windows (PowerShell)
+Windows PowerShell:
 
 ```powershell
-Get-ChildItem "XP12_Buildings\Earth nav data" -Filter "*.txt" -Recurse | ForEach-Object {
-    .\DSFTool.exe --text2dsf $_.FullName ($_.FullName -replace '\.txt$','.dsf')
-}
+py -m venv Data_Pipeline/venv
+.\Data_Pipeline\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 ```
 
-### Compile — macOS / Linux
+Install dependencies for the selected workflow:
+
+- [Unity pipeline setup](Data_Pipeline/src/Automated_Mask_Pipeline/README.md#setup)
+- [RIDGE4XP setup](X-Plane/RIDGE4XP/README.md#setup)
+- [Forest export setup](Data_Pipeline/src/Tree_Detection_Module/xplane/README_XPLANE_TREES.md#setup)
+
+The requirements files describe different environments. The root
+`requirements.txt` covers standalone RAMP/geospatial tools;
+`Data_Pipeline/requirements.txt` captures a larger pinned environment;
+`Data_Pipeline/src/Building_Detection_Module/buildings-requirements.txt` covers
+hosted Roboflow detection. Do not combine these files indiscriminately. The
+workflow guides below provide focused package installation commands.
+GUI applications require Python with Tkinter.
+
+Multiline command examples use Bash continuation syntax. In PowerShell, put the
+command on one line or replace trailing `\` with a backtick.
+
+## Models and credentials
+
+### RAMP XUNet
+
+Download the Buildings Segmentation XUNet ONNX model from the
+[Deepness Model Zoo](https://qgis-plugin-deepness.readthedocs.io/en/latest/main/main_model_zoo.html).
+RAMP inference is local and does not require a Roboflow key. Use `--model` for
+standalone detectors or `--ramp-building-model` for the Unity pipeline.
+
+The Data Pipeline default model path is:
+
+```text
+Data_Pipeline/src/Building_Detection_Module/models/building-footprint-extract/3/weights.onnx
+```
+
+RIDGE4XP uses a different [model location](X-Plane/RIDGE4XP/README.md#overlays).
+RAMP segmentation weights and Roboflow instance-segmentation weights are
+separate models; do not substitute one for the other, even if filenames match.
+Model weights are excluded from Git and must be obtained separately.
+
+### Roboflow
+
+For standalone `building_detector.py` or `building_detector_local.py`, create
+`Data_Pipeline/src/Building_Detection_Module/.env` with:
+
+```dotenv
+ROBOFLOW_API_KEY=YOUR_ROBOFLOW_API_KEY
+```
+
+These scripts call `load_dotenv()`. The automated pipeline does not load `.env`
+itself: use its GUI key field or set `ROBOFLOW_API_KEY` in the environment.
+Never commit real keys. The hosted detector needs network access and a key.
+The local Roboflow backend is designed to download/cache model
+`building-footprint-extract/3` on first use and load the cache on later runs;
+your key must be authorized to access that model.
+
+## Unity workflow
+
+Provide georeferenced RGB, DEM, and NDVI inputs (north-up EPSG:4326 RGB), install the
+[Unity pipeline dependencies](Data_Pipeline/src/Automated_Mask_Pipeline/README.md#setup),
+and download the RAMP model. Start the GUI:
 
 ```bash
-find "XP12_Buildings/Earth nav data" -name "*.txt" | while read f; do
-    ./DSFTool --text2dsf "$f" "${f%.txt}.dsf"
+python Data_Pipeline/src/Automated_Mask_Pipeline/pipeline_gui.py
+```
+
+Or run the raw-input pipeline:
+
+```bash
+python Data_Pipeline/src/Automated_Mask_Pipeline/pipeline_runner.py \
+  --input-mode raw \
+  --raw-rgb-file /path/to/rgb.tif \
+  --dem-file /path/to/dem.tif \
+  --ndvi-file /path/to/ndvi.tif \
+  --work-dir Data_Pipeline/outputs/automatic_run \
+  --building-detector ramp \
+  --ramp-building-model /path/to/ramp_XUnet_256.onnx
+```
+
+Road generation queries OpenStreetMap, requiring network access unless responses
+are cached. Raw mode rebuilds its generated RGB and Unity intermediate folders;
+keep source inputs outside those folders. Add `--low-is-tree` only when lower
+values in your NDVI encoding represent the tree regions you want to select.
+
+The default final package is `Data_Pipeline/outputs/unity_ready/Terrain_Tiles`.
+Copy it into `Assets/Resources/Terrain_Tiles` in your Unity project. Copy
+`Unity_Scripts` into `Assets/Scripts`, preserving the `Editor` subdirectory.
+See the [Unity guide](Data_Pipeline/src/Automated_Mask_Pipeline/README.md) for
+prepared-input mode, output paths, Inspector settings, and placement steps.
+Materials, tree prefabs, and a complete Unity scene are not included. Placement
+includes editor workflows; not every script is suitable unchanged for a player build.
+
+## X-Plane 12 workflows
+
+### Terrain and integrated overlays
+
+Follow the [RIDGE4XP guide](X-Plane/RIDGE4XP/README.md) for dependencies, local
+input organization, CLI/GUI configuration, generation, and installation.
+
+### Standalone buildings
+
+Use the WGS84 detector for X-Plane, rather than the pixel-coordinate PNG detector
+used by Unity. Install its dependencies:
+
+```bash
+python -m pip install numpy opencv-python onnxruntime rasterio pyproj
+```
+
+Detect buildings from a folder of RGB GeoTIFFs with valid CRS metadata:
+
+```bash
+python Data_Pipeline/src/Building_Detection_Module/Ramp_Building_Detector_WGS84.py \
+  /path/to/rgb_geotiffs \
+  --model /path/to/ramp_XUnet_256.onnx \
+  --output buildings.json
+```
+
+Export the JSON to a scenery package:
+
+```bash
+python Data_Pipeline/src/Building_Detection_Module/XPlaneExporter.py \
+  buildings.json --out XP12_Buildings --name RIDGE_Buildings --exclude-autogen
+```
+
+This creates DSF **text**, not compiled scenery. Obtain DSFTool from the official
+[X-Plane tools page](https://developer.x-plane.com/tools/xptools/), then compile
+every `.txt` inside the package's `Earth nav data` directory.
+
+macOS / Linux:
+
+```bash
+find "XP12_Buildings/Earth nav data" -name '*.txt' | while IFS= read -r f; do
+  /path/to/DSFTool --text2dsf "$f" "${f%.txt}.dsf"
 done
 ```
 
-> [!NOTE]
-> DSFTool is slow — expect **5–15 minutes per file**. It may appear unresponsive during compilation. This is normal.
+Windows PowerShell:
 
----
+```powershell
+Get-ChildItem "XP12_Buildings/Earth nav data" -Filter "*.txt" -Recurse | ForEach-Object {
+  & "C:\path\to\DSFTool.exe" --text2dsf $_.FullName ($_.FullName -replace '\.txt$', '.dsf')
+}
+```
 
-## Step 5 — Install in X-Plane 12
+Copy the compiled package into `X-Plane 12/Custom Scenery/RIDGE_Buildings/` and
+add its entry above scenery it should override in `Custom Scenery/scenery_packs.ini`:
 
-### Option A: Automatic (recommended)
+```text
+SCENERY_PACK Custom Scenery/RIDGE_Buildings/
+```
 
-If you passed `--xplane` in Step 2, installation is already done. Skip to [launching](#launch).
+The optional `--xplane` argument copies the package immediately but does not
+compile DSF. If you use it, compile the installed copy before launching X-Plane,
+or reinstall after compiling the source package. Use `--help` for options such
+as `--gsd` and `--min-area`. Compilation time depends on the package and machine.
 
-### Option B: Manual
+### Standalone trees
 
-1. Copy the output folder into your Custom Scenery directory:
+The [forest export guide](Data_Pipeline/src/Tree_Detection_Module/xplane/README_XPLANE_TREES.md)
+explains mask inputs, DSF compilation, installation, and forest/object exclusions.
 
-   ```
-   XP12_Buildings/  →  X-Plane 12/Custom Scenery/XP12_Buildings/
-   ```
+## Evaluation and benchmarks
 
-2. Open `X-Plane 12/Custom Scenery/scenery_packs.ini` and add your package **near the top**, before `Global Airports`:
+- Building evaluation: `Data_Pipeline/src/Evaluation/Buildings/evaluate_buildings.py`.
+  Requires `--evaluation-boundary`, `--gt`, and `--pred`; use `--help` for options.
+- Forest evaluation: `Data_Pipeline/src/Evaluation/Forests/evaluate_forests.py`.
+  It currently imports the building helper by module name; include
+  `Data_Pipeline/src/Evaluation/Buildings` in `PYTHONPATH` when running it.
+- Unity recording: `Unity_Scripts/RIDGEBenchmarkRecorder.cs`.
+- X-Plane FPS parsing: `python tools/parse_xplane_fps_data.py /path/to/Data.txt --out /path/to/summary.csv`.
+- [Rendering benchmark protocol](docs/rendering_benchmark_protocol.md)
+- [macOS reproducibility snapshot](docs/mac_reproducibility_snapshot.md)
+- [Windows reproducibility snapshot](docs/windows_reproducibility_snapshot.md)
 
-   ```
-   I
-   1000 Version
-   SCENERY
+Platform snapshots and committed measurements document historical runs, not
+minimum system requirements or performance guarantees.
 
-   SCENERY_PACK Custom Scenery/XP12_Buildings/
-   SCENERY_PACK Custom Scenery/Global Airports/
-   ```
+## Third-party notices
 
----
-
-## Launch
-
-Start X-Plane 12 and search for your package name (e.g. `My_City_Buildings`) in the location menu.
+RIDGE4XP and bundled tool notices are in
+[Licence/copyright.txt](X-Plane/RIDGE4XP/Licence/copyright.txt), with the GPL text
+in [Licence/gpl.txt](X-Plane/RIDGE4XP/Licence/gpl.txt). Preserve notices in bundled
+tools and source files. Models and source datasets have their own usage terms.

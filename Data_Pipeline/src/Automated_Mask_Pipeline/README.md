@@ -1,65 +1,109 @@
-# Fully Automatic Unity Pipeline
+# Automated Unity Pipeline
 
-This folder contains the non-XPlane pipeline for:
+This pipeline slices RGB/DEM/NDVI GeoTIFFs, extracts buildings, roads, and trees,
+cleans overlapping masks, and exports a Unity-ready `Terrain_Tiles` directory.
+It does not call the X-Plane scripts.
 
-1. slicing a raw RGB GeoTIFF into georeferenced tiles
-2. generating Unity RGB, height, and metadata files from a raw DEM
-3. slicing a raw NDVI GeoTIFF to the same tile grid
-4. generating and cleaning building, road, and tree data
-5. exporting a Unity-ready `Terrain_Tiles` folder
+Run commands from the repository root with an activated environment; see the
+[root setup guide](../../../README.MD#python-setup). Multiline examples use Bash syntax.
 
-The pipeline has two input modes:
+## Setup
 
-- `raw`: accepts one RGB GeoTIFF, one DEM GeoTIFF, and one NDVI GeoTIFF
-- `prepared`: uses existing `RGB_tifs` and `unity_output` folders
-
-The building detector can be selected at runtime:
-
-- `roboflow`: uses `building_detector_local.py`, which loads the cached Roboflow model or downloads it on first run with a Roboflow API key
-- `ramp`: uses `Ramp_Building_Detector.py` with a local RAMP XUNet ONNX model
-
-The pipeline preserves the full Unity tile grid. If a tile has no roads, trees,
-or buildings after cleanup, it still receives an empty mask or empty JSON entry
-instead of being omitted.
-
-## GUI
-
-From the repository root:
+Install the RAMP, road, tree, and terrain dependencies:
 
 ```bash
-Data_Pipeline/venv/bin/python Data_Pipeline/src/Automated_Mask_Pipeline/pipeline_gui.py
+python -m pip install numpy pillow rasterio pyproj opencv-python shapely geopandas osmnx onnxruntime
 ```
+
+For optional local Roboflow inference, also install:
+
+```bash
+python -m pip install inference python-dotenv
+```
+
+The GUI requires Tkinter. Road mask and road JSON generation query OSM and need
+internet access unless relevant responses are already cached.
+
+### Building backends
+
+| Backend | Requirements |
+| --- | --- |
+| `ramp` | Local Buildings Segmentation XUNet ONNX weights from the [Deepness Model Zoo](https://qgis-plugin-deepness.readthedocs.io/en/latest/main/main_model_zoo.html); no API key |
+| `roboflow` | Model `building-footprint-extract/3`; first download needs network access and an authorized Roboflow key; later runs are designed to use the local cache |
+
+The CLI defaults to `roboflow`; the GUI defaults to `ramp`. For RAMP, select the
+model in the GUI or pass `--ramp-building-model`. Its default path is
+`Data_Pipeline/src/Building_Detection_Module/models/building-footprint-extract/3/weights.onnx`.
+Weights are not committed. Do not substitute Roboflow instance-segmentation
+weights for the RAMP segmentation model.
+
+The automated pipeline does not load `.env` files. For Roboflow, use the GUI key
+field or set the variable before launching:
+
+```bash
+export ROBOFLOW_API_KEY='YOUR_ROBOFLOW_API_KEY'
+```
+
+Windows PowerShell:
+
+```powershell
+$env:ROBOFLOW_API_KEY = 'YOUR_ROBOFLOW_API_KEY'
+```
+
+Never commit real keys. `--building-confidence` is 0–100 for Roboflow; RAMP uses
+that value divided by 100 as its fill-ratio threshold.
+
+## Input modes
 
 ### Raw GeoTIFF mode
 
-Select:
+Provide RGB, DEM, and NDVI GeoTIFFs covering your study area, with valid CRS
+metadata and elevations in metres. Use north-up EPSG:4326 RGB imagery: the terrain
+tiler calculates ground dimensions from longitude/latitude bounds. DEM and NDVI
+are reprojected to the RGB tile grid during preparation.
 
-- `Raw RGB GeoTIFF`
-- `Raw DEM GeoTIFF`
-- `Raw NDVI GeoTIFF`
-- `Intermediate workspace`
-- `Final Terrain_Tiles folder`
-
-The intermediate workspace is rebuilt on every raw-mode run. Do not place source
-GeoTIFFs inside it.
+Raw mode rebuilds `RGB_tifs` and `unity_output` inside `--work-dir` on every run.
+Keep source files outside these generated directories. Skip options are rejected
+in raw mode. Tile size must be a positive power of two, such as 256, 512, or 1024.
 
 ### Prepared mode
 
-Select:
+Provide existing RGB GeoTIFF tiles and a matching Unity intermediate directory:
 
-- `RGB GeoTIFF tiles folder`: usually `Data_Pipeline/outputs/RGB_tifs`
-- `Prepared Unity data folder`: usually `Data_Pipeline/outputs/unity_output`
+```text
+RGB_tifs/
+  tile_*.tif
+unity_output/
+  tile_metadata.json
+  tiles_rgb/
+  tiles_height/
+  tiles_height_tif/
+```
 
-Prepared mode reads NDVI tiles directly from `unity_output/tiles_ndvi`.
+Use `--ndvi-file` to tile an NDVI source, or reuse `unity_output/tiles_ndvi` with
+`--skip-ndvi-tiling`. Skip options can reuse existing masks or JSON; use `--help`
+for the corresponding input paths.
 
-Click `Run Pipeline`.
-
-## Command Line
-
-Raw GeoTIFF mode:
+## GUI
 
 ```bash
-Data_Pipeline/venv/bin/python Data_Pipeline/src/Automated_Mask_Pipeline/pipeline_runner.py \
+python Data_Pipeline/src/Automated_Mask_Pipeline/pipeline_gui.py
+```
+
+Choose raw/prepared mode, fill in inputs and outputs, select the building
+backend, and supply its model or key. Click `Run Pipeline` to launch processing
+with the selected Python interpreter and view its output.
+
+The GUI initially enables `low_is_tree`. Check this against your NDVI encoding:
+standard NDVI generally has higher values for vegetation. Enable that option
+only when lower values select your desired tree regions.
+
+## Command line
+
+Raw inputs with RAMP:
+
+```bash
+python Data_Pipeline/src/Automated_Mask_Pipeline/pipeline_runner.py \
   --input-mode raw \
   --raw-rgb-file /path/to/rgb.tif \
   --dem-file /path/to/dem.tif \
@@ -67,40 +111,46 @@ Data_Pipeline/venv/bin/python Data_Pipeline/src/Automated_Mask_Pipeline/pipeline
   --work-dir Data_Pipeline/outputs/automatic_run \
   --tile-size 512 \
   --building-detector ramp \
-  --low-is-tree
+  --ramp-building-model /path/to/ramp_XUnet_256.onnx
 ```
 
-Prepared mode:
+Prepared inputs with a new NDVI source:
 
 ```bash
-Data_Pipeline/venv/bin/python Data_Pipeline/src/Automated_Mask_Pipeline/pipeline_runner.py \
+python Data_Pipeline/src/Automated_Mask_Pipeline/pipeline_runner.py \
   --input-mode prepared \
   --rgb-tifs Data_Pipeline/outputs/RGB_tifs \
   --unity-output Data_Pipeline/outputs/unity_output \
-  --ndvi-file Data_Pipeline/inputs/your_ndvi_file.tiff \
+  --ndvi-file /path/to/ndvi.tif \
   --building-detector ramp \
-  --low-is-tree
+  --ramp-building-model /path/to/ramp_XUnet_256.onnx
 ```
 
-If `tiles_ndvi` already exists, skip NDVI tiling:
-
-```bash
-Data_Pipeline/venv/bin/python Data_Pipeline/src/Automated_Mask_Pipeline/pipeline_runner.py \
-  --skip-ndvi-tiling \
-  --low-is-tree
-```
+To reuse existing NDVI tiles, replace `--ndvi-file /path/to/ndvi.tif` with
+`--skip-ndvi-tiling`. For Roboflow, set the environment variable and replace the
+two RAMP options with `--building-detector roboflow`. Tune trees using
+`--tree-threshold`, `--min-ndvi`, `--ndvi-band`, and, where appropriate, `--low-is-tree`.
 
 ## Outputs
 
-- roads: `Data_Pipeline/outputs/RGB_tifs/_roads_out_rgb`
-- road JSON for `RoadLineBuilder`: `Data_Pipeline/outputs/unity_output/roads`
-- trees: `Data_Pipeline/outputs/unity_output/tiles_trees`
-- buildings JSON: `Data_Pipeline/outputs/unity_output/buildings.json`
-- cleaned buildings JSON: `Data_Pipeline/outputs/unity_output/buildings_cleaned.json`
-- building masks: `Data_Pipeline/outputs/unity_output/tiles_buildings`
-- Unity-ready package: `Data_Pipeline/outputs/unity_ready/Terrain_Tiles`
+Paths follow the configured intermediate directories. Prepared-mode defaults:
 
-The final package uses the Unity project names directly:
+| Artifact | Default path |
+| --- | --- |
+| Road masks | `Data_Pipeline/outputs/RGB_tifs/_roads_out_rgb` |
+| Road JSON | `Data_Pipeline/outputs/unity_output/roads` |
+| NDVI tiles | `Data_Pipeline/outputs/unity_output/tiles_ndvi` |
+| Tree masks and positions | `Data_Pipeline/outputs/unity_output/tiles_trees` |
+| Buildings / cleaned buildings | `Data_Pipeline/outputs/unity_output/buildings.json` / `buildings_cleaned.json` |
+| Building masks | `Data_Pipeline/outputs/unity_output/tiles_buildings` |
+| Final package | `Data_Pipeline/outputs/unity_ready/Terrain_Tiles` |
+
+Raw-mode intermediates instead live under `--work-dir`. Final output has the
+same default in either mode; change it with `--unity-package-dir`. Export
+replaces matching destination subdirectories.
+
+The pipeline preserves the Unity grid, including empty masks and JSON entries
+for tiles with no detected features. The final package contains:
 
 ```text
 Terrain_Tiles/
@@ -110,26 +160,29 @@ Terrain_Tiles/
 ├── road_masks/
 ├── tiles_buildings/
 ├── tiles_height/
-├── tiles_height_raw/
-├── tiles_height_tif/
+├── tiles_height_raw/     # copied when present
+├── tiles_height_tif/     # copied when present
 ├── tiles_rgb/
 └── tiles_trees/
 ```
 
-Unity usage:
+## Unity import and placement
 
-- `TilePlacer`
-  - `tilesFolder`: `Terrain_Tiles`
-  - `heightFolder`: `tiles_height`
-  - `textureFolder`: `tiles_rgb`
-  - `metadataFile`: `tile_metadata`
-  - `buildingsMetadataFile`: `buildings`
-- `NDVITreePlacer`
-  - `tilesFolder`: `Terrain_Tiles`
-  - `treesFolder`: `tiles_trees`
-- `GlobalRoadManager` with `RoadLineBuilder`
-  - the generated files are in `Terrain_Tiles/Roads`
-  - files are named `tile_X_Y_roads.json`
-- older `MaskToRoad` workflows can use `Terrain_Tiles/road_masks`
+1. Copy the package to `Assets/Resources/Terrain_Tiles`. Copy `Unity_Scripts` to
+   `Assets/Scripts`, preserving its `Editor` folder.
+2. Add `TilePlacer` to a scene object. Set `tilesFolder = Terrain_Tiles`,
+   `heightFolder = tiles_height`, `textureFolder = tiles_rgb`,
+   `metadataFile = tile_metadata`, and `buildingsMetadataFile = buildings`.
+   Set `xTileCount` and `yTileCount` to your grid dimensions. Resources names
+   omit extensions. Use the controls in order: `Read Json`,
+   `Change Setup`, `Read Building Json`, `Place Buildings`. Add a Unity layer
+   named `Building` for building placement.
+3. Add `NDVITreePlacer`, assign the `TilePlacer` and tree prefabs, and set
+   `tilesFolder = Terrain_Tiles`, `treesFolder = tiles_trees`. Click `Place Trees`.
+4. Add `GlobalRoadManager`, assign the terrain root and materials, and use its
+   `Build Roads` control. JSON is in `Terrain_Tiles/Roads`, with files named
+   `tile_X_Y_roads.json`.
 
-No XPlane scripts are called by this pipeline.
+Placement includes Unity Editor APIs; generate the scene in the editor before
+using it in a build. Scripts and data do not supply materials, tree prefabs, or
+a ready-made Unity scene.
